@@ -26,5 +26,5 @@ Integration harness (fresh loopback server only):
     --minecraft-protocol /unused-for-native-test
 The native harness needs Xvfb on display :91 and Mesa for software rendering.
 
-Client command: /lodc; server administration: /lods.
+Client command: /lodc; server administration: /lod (also /lods).
 Entry points: cc.taixue.lod.client.LodClient and cc.taixue.lod.server.LodServer.

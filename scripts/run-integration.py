@@ -76,7 +76,8 @@ with root.joinpath('console.log').open('w') as log:
    assert (root/'plugins/LodServer/migration-marker.txt').read_text()=='existing cache/config directory'
    report['legacy_data_migrated']=True
   if not a.without_server_plugin:
-   commands=['lods','lods cache status','lods warm status','lods lodworlds','lods reload']
+   commands=['lods','lods cache status','lods warm status','lods lodworlds','lods reload',
+             'lod','lod cache status','lod warm status','lod lodworlds','lod reload']
    for command in commands:server.stdin.write(command+'\n');server.stdin.flush();time.sleep(.2)
    time.sleep(1)
    console=root.joinpath('console.log').read_text(errors='replace')

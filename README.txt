@@ -1,4 +1,4 @@
-LodServer / LodClient — 服务端命令 /lods，客户端命令 /lodc
+LodServer / LodClient — 服务端命令 /lod（兼容 /lods），客户端命令 /lodc
 
 LodServer 0.2.0 — ARCH 共享远景缓存
 
@@ -163,10 +163,16 @@ LodServer 0.2.0 — ARCH 共享远景缓存
 Minecraft 26.3 Fabric client: see client-26.3/README.txt. This is a separate Java 25 build; the original client and server remain Java 21 builds.
 
 命名与升级
-  插件名为 LodServer，mod 名为 LodClient；指令分别为 /lods、/lodc。
+  插件名为 LodServer，mod 名为 LodClient；服务端指令为 /lod（兼容 /lods），客户端指令为 /lodc。
   自有入口为 cc.taixue.lod.server.LodServer、cc.taixue.lod.client.LodClient。
   第三方包名、网络协议标识、客户端 mod ID 与配置文件名保持兼容。
   首次启动前备份旧 plugins/ArchLOD/，移走旧版服务端 jar，安装 LodServer jar。
   插件会在创建默认配置前把旧 ArchLOD 数据目录整体迁移到 LodServer。
   若两个非空目录同时存在，拒绝启动且不覆盖文件，需管理员先合并数据。
   回退到旧版时，应在停服后将目录改回 ArchLOD；配置与缓存格式保持兼容。
+
+通用命令入口
+  /lod 与 /lods 是同一服务端命令，权限完全相同。例如 /lod cache status、
+  /lod warm status、/lod reload。个人设置继续用 /lodc，不在客户端注册
+  /lod 根命令，避免拦截服务端子命令。/lodc worlds 为个人下载偏好；
+  /lod lodworlds 为服务端 LOD 世界名单，/lod worlds 为 服务端世界列表。

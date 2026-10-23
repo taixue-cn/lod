@@ -7,6 +7,7 @@ softdepend: [Multiverse-Core, LuckPerms, ViaVersion, FastAsyncWorldEdit, WorldEd
 description: Permission-aware server LOD cache for Voxy and Distant Horizons
 commands:
   lods:
+    aliases: [lod]
     description: Manage shared LOD cache, worlds, and prewarming
     permission: distant_horizons.admin
 permissions:
