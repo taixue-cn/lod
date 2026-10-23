@@ -1,0 +1,19 @@
+plugins {
+    id 'com.gradleup.shadow' version '9.3.1' apply false
+    id 'fabric-loom' version '1.16.2' apply false
+}
+subprojects {
+    group = 'cc.taixue.lod'
+    version = '0.2.0'
+    repositories { mavenCentral(); maven { url = 'https://repo.papermc.io/repository/maven-public/' } }
+    plugins.withId('java') {
+        java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+        tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+        dependencies {
+            testImplementation platform('org.junit:junit-bom:5.11.4')
+            testImplementation 'org.junit.jupiter:junit-jupiter'
+            testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+        }
+        test { useJUnitPlatform() }
+    }
+}

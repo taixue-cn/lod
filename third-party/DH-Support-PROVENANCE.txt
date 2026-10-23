@@ -1,0 +1,6 @@
+Source: https://gitlab.com/distant-horizons-team/distant-horizons-server-plugin
+Commit: 04fc2e17f9c04e717a1e09997c3201ac5bab9e53
+License: GPL-3.0-or-later; original headers retained.
+Local modifications: permission/lease enforcement, bounded requests, Bukkit scheduling, startup/shutdown, no metrics or update polling.
+
+0.2.0 additions: shared retention inventory/eviction, server prewarm and unload refresh, FULL-chunk guards, snapshot-only missing neighbors, serialized section refresh, complete XZ stream framing.

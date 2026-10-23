@@ -1,0 +1,4 @@
+Source: https://github.com/VoX/lod-server-support
+Tag: v0.19.0+mc1.21.11
+Vendored files: common/src/main/java/dev/vox/lss/common/wire/*.java
+License: MIT. Local core and server are GPL-3.0-or-later; no Voxy code or binary is bundled.

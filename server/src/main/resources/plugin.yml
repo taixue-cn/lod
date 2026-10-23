@@ -1,0 +1,21 @@
+name: ArchLOD
+version: '0.2.0'
+main: no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
+api-version: '1.21.4'
+softdepend: [Multiverse-Core, LuckPerms, ViaVersion, FastAsyncWorldEdit, WorldEdit]
+description: Permission-aware server LOD cache for Voxy and Distant Horizons
+commands:
+  dhs:
+    description: Manage DH server LOD cache and pregeneration
+    permission: distant_horizons.admin
+  dh:
+    description: Distant Horizons information
+permissions:
+  archlod.use:
+    default: true
+    description: Receive distant terrain, additionally requiring world access
+  distant_horizons.admin:
+    default: op
+  archlod.upload:
+    default: false
+    description: Offer local cache when uploads are enabled and world access is granted

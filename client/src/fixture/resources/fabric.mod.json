@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "archlod_client_fixture",
+  "version": "0.2.0",
+  "name": "Isolated LOD client verification",
+  "environment": "client",
+  "entrypoints": { "client": ["cc.taixue.lod.fixture.NativeClientFixture"] },
+  "depends": { "fabricloader": "*", "fabric-api": "*" }
+}
