@@ -1,0 +1,6 @@
+Kotlin standard library 2.4.21
+Source: https://github.com/JetBrains/kotlin/tree/v2.4.21
+Artifact: org.jetbrains.kotlin:kotlin-stdlib:2.4.21
+License: Apache-2.0
+Copyright: JetBrains s.r.o. and Kotlin contributors.
+Unmodified runtime is bundled in the Paper shadow jar and nested in each Fabric jar.

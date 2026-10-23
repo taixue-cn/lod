@@ -10,7 +10,7 @@ Install into the client's mods directory with:
 Do not install the fixture jar; it is only for automated isolated tests.
 Do not install both the 1.21.11 and 26.3 editions together (same mod ID).
 
-The build shares the original client/core sources. Its checked portSources task
+The build shares the Kotlin client/core sources and the vendored Java wire codec. Its checked portSources task
 adapts the changed Fabric/Minecraft API names and the two-short native section
 header used by 26.3. The LSS v20 network format stays unchanged. Source changes
 that invalidate the expected replacements fail the build for review.

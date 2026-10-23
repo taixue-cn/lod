@@ -4,7 +4,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import os,json,urllib.request,hashlib,subprocess,shutil,zipfile,fcntl
 project=Path(__file__).resolve().parents[1]
-cache=project.parent.parent/'artifacts/arch-lod-20261023/native-runtime';cache.mkdir(exist_ok=True)
+cache=project.parent/'artifacts/arch-lod-20261023/native-runtime';cache.mkdir(exist_ok=True)
 gradle=Path.home()/'.gradle/caches'
 version=os.environ.get('ARCH_LOD_CLIENT_VERSION','1.21.11')
 modern=version=='26.3'

@@ -77,8 +77,9 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
   普通方块事件、WorldEdit/FAWE 编辑会触发更新；Voxy 的有效期还会兜底其它
   绕过事件的修改。世界名单变化不删除历史缓存，但禁止向玩家发送。
   FAWE 必须允许本插件的 extent；在 FAWE config.yml 的 extent.allowed-plugins
-  添加：cc.taixue.lod.server.WorldEditInvalidation$1
-  ARCH 部署会追加这一项并备份原配置。
+  添加：cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent
+  升级 Kotlin 版时，将旧的 WorldEditInvalidation$1 允许项替换为上述稳定类名。
+  修改 FAWE 配置前备份原文件；本次编译、发布不会自动改动生产服配置。
   队列、并发、坐标和消息长度均有上限；默认每 tick 2 个 Voxy columns，
   全局最多 4 个处理任务、单玩家队列 256。初次远景填充会逐步完成。
 

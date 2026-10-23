@@ -30,7 +30,7 @@ for src in [project/'server/build/libs/ArchLOD-0.2.0.jar',project/'server/build/
 if a.worldedit:
  shutil.copy2(runtime/'plugins/FastAsyncWorldEdit-Paper-2.15.1-SNAPSHOT-1282.jar',root/'plugins/FastAsyncWorldEdit.jar')
  (root/'plugins/FastAsyncWorldEdit').mkdir()
- (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$1"\n')
+ (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent"\n')
 cfg=project.joinpath('server/src/main/resources/config.yml').read_text().replace('upload:\n  enabled: false','upload:\n  enabled: true').replace('  allowed-players: []','  allowed-players: ["*"]').replace('  blocked-players: []','  blocked-players: ["LODBlocked"]').replace('  cooldown-seconds: 5','  cooldown-seconds: 1').replace('  refresh-on-unload: true','  refresh-on-unload: false')
 root.joinpath('plugins/ArchLOD').mkdir();root.joinpath('plugins/ArchLOD/config.yml').write_text(cfg)
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]

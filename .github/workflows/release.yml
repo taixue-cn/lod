@@ -20,7 +20,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       - name: Test and build Paper server and Minecraft 1.21.11 client
-        run: ./gradlew --no-daemon :core:test :server:test :server:shadowJar :client:remapJar
+        run: ./gradlew --no-daemon checkKotlinFormat :core:test :server:test :server:shadowJar :client:remapJar
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin

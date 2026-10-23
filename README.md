@@ -11,12 +11,18 @@
 
 服务端使用 `/lod`（别名 `/lod-s`），例如 `/lod cache status`、`/lod warm status`、`/lod reload`。客户端使用 `/lod-c`，例如 `/lod-c radius 64`、`/lod-c worlds`。原 `/dhs`、`/lodclient` 已移除；服务端不再占用 DH 的 `/dh` 命令。权限节点与现有配置、缓存目录继续沿用。
 
+## 技术栈与代码规范
+
+自有服务端、客户端、共享逻辑及测试均使用 Kotlin 2.4.21，构建脚本使用 Gradle Kotlin DSL。遵循 Kotlin Official Style；`./gradlew formatKotlin` 格式化，`./gradlew checkKotlinFormat` 检查，CI 在发布前执行格式检查。权限、协议、线程和版本边界附有必要注释。
+
+第三方 DH Support／LSS 源码保留 Java 与原许可证；自有代码仅在有明确技术限制时使用 Java，例如受限制的 Mixin。具体约定见 [AGENTS.md](AGENTS.md)。Kotlin 运行库随服务端插件／客户端 mod 打包，不额外要求玩家安装运行库 mod。
+
 ## 构建
 
 Java 21：
 
 ```sh
-./gradlew --no-daemon :core:test :server:test :server:shadowJar :client:remapJar
+./gradlew --no-daemon checkKotlinFormat :core:test :server:test :server:shadowJar :client:remapJar
 ```
 
 Java 25：
