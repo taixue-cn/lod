@@ -31,7 +31,7 @@ final class WorldPreferences {
         var es=entries();if(add){if(es.size()>=64){say("At most 64 world entries");return 0;}if(!es.contains(value))es.add(value);}else es.remove(value);
         var array=new JsonArray();es.forEach(array::add);current().add("entries",array);save();say("LOD downloads: "+current().get("mode").getAsString()+" "+es);return 1;
     }
-    private void registerCommands(){ClientCommandRegistrationCallback.EVENT.register((dispatcher,registry)->dispatcher.register(literal("lodclient")
+    private void registerCommands(){ClientCommandRegistrationCallback.EVENT.register((dispatcher,registry)->dispatcher.register(literal("lod-c")
         .then(literal("radius").executes(ctx->{say("LOD download radius: "+radius()+" chunks");return 1;})
             .then(argument("chunks",IntegerArgumentType.integer(8,128)).executes(ctx->{current().addProperty("radiusChunks",IntegerArgumentType.getInteger(ctx,"chunks"));save();say("LOD download radius: "+radius()+" chunks");return 1;})))
         .then(literal("worlds").executes(ctx->{say(current().toString());return 1;})

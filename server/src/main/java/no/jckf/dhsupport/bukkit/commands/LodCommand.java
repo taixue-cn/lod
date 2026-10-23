@@ -37,11 +37,11 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.UUID;
 
-public class DhsCommand implements CommandExecutor
+public class LodCommand implements CommandExecutor
 {
     protected DhSupportBukkitPlugin plugin;
 
-    public DhsCommand(DhSupportBukkitPlugin plugin)
+    public LodCommand(DhSupportBukkitPlugin plugin)
     {
         this.plugin = plugin;
     }
@@ -50,7 +50,7 @@ public class DhsCommand implements CommandExecutor
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args)
     {
         if (args.length < 1) {
-            sender.sendMessage(ChatColor.RED + "Missing sub-command.");
+            sender.sendMessage(ChatColor.RED + "Usage: /lod cache|warm|lodworlds|status|reload|worlds|pregen|pause|unpause|trim|bench|config");
             return true;
         }
 
@@ -101,7 +101,7 @@ public class DhsCommand implements CommandExecutor
             var entries=new java.util.ArrayList<>(plugin.getConfig().getStringList(key+".entries"));
             if(args[0].equals("add")){if(!entries.contains(args[1]))entries.add(args[1]);}else entries.remove(args[1]);
             plugin.getConfig().set(key+".entries",entries);
-        } else if(args.length!=0){sender.sendMessage("/dhs lodworlds [mode whitelist|blacklist / add <world> / remove <world>]");return true;}
+        } else if(args.length!=0){sender.sendMessage("/lod lodworlds [mode whitelist|blacklist / add <world> / remove <world>]");return true;}
         plugin.saveConfig();plugin.getWorldAccess().refreshPolicy();
         sender.sendMessage("LOD worlds: "+plugin.getConfig().getString(key+".mode")+" "+plugin.getConfig().getStringList(key+".entries"));return true;
     }

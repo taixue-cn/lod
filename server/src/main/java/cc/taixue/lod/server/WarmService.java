@@ -80,7 +80,7 @@ public final class WarmService implements AutoCloseable,Listener {
  public boolean command(CommandSender sender,String[] args){
   String action=args.length==0?"status":args[0];String target=args.length>1?args[1]:"all";
   if(action.equals("status")){sender.sendMessage("prewarm active="+active+", unload queue="+unloads.size()+"/"+unloadDh.size()+", refreshed="+completed+", failed="+failed);for(var job:jobs.values())sender.sendMessage(job.world.getName()+": "+(job.finished?"finished":"running")+", chunks="+job.done+", failures="+job.errors);return true;}
-  if(!Set.of("start","stop").contains(action)){sender.sendMessage("/dhs warm start|stop|status [world|all]");return true;}
+  if(!Set.of("start","stop").contains(action)){sender.sendMessage("/lod warm start|stop|status [world|all]");return true;}
   int changed=0;for(World world:Bukkit.getWorlds())if(target.equals("all")||target.equals(world.getName())||target.equals(world.getUID().toString())){if(action.equals("start")){if(start(world))changed++;}else if(jobs.remove(world.getUID())!=null)changed++;}
   sender.sendMessage("Prewarm "+action+": "+changed+" worlds");return true;
  }

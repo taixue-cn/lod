@@ -1,9 +1,9 @@
-LODClient — Minecraft 26.3 / Fabric
+LOD-C — Minecraft 26.3 / Fabric
 
 Build separately from the Java 21 server and Minecraft 1.21.11 client:
   JAVA_HOME=/path/to/jdk-25 ./gradlew --no-daemon clean build fixtureJar
 
-Player artifact: build/libs/lodclient-0.2.0+mc26.3.jar
+Player artifact: build/libs/lod-c-0.2.0+mc26.3.jar
 Install into the client's mods directory with:
   Minecraft 26.3, Java 25+, Fabric Loader 0.20.1+, Fabric API for 26.3.
   Voxy for 26.3 is required to render Voxy terrain.

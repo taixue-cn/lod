@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "taixue_lod",
   "version": "0.2.0",
-  "name": "Taixue LOD Bridge",
+  "name": "LOD-C",
   "description": "Optional server terrain and trusted cache exchange for unmodified Voxy. Vanilla behavior remains when the server is absent.",
   "environment": "client",
   "entrypoints": {

@@ -51,9 +51,8 @@ sourceSets.main.java.srcDirs = [layout.buildDirectory.dir('generated/sources/por
 sourceSets.main.resources.srcDirs = ['../client/src/main/resources']
 tasks.compileJava.dependsOn portSources
 tasks.processResources {
-    inputs.property('clientDisplayName', 'LODClient')
     filesMatching('fabric.mod.json') {
-        filter { line -> line.replace('"0.2.0"', '"0.2.0+mc26.3"').replace('"1.21.11"', '"26.3"').replace('>=0.18.4', '>=0.20.1').replace('>=21', '>=25').replace('Taixue LOD Bridge', 'LODClient') }
+        filter { line -> line.replace('"0.2.0"', '"0.2.0+mc26.3"').replace('"1.21.11"', '"26.3"').replace('>=0.18.4', '>=0.20.1').replace('>=21', '>=25') }
     }
 }
 base { archivesName = 'lodclient' }

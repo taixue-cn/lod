@@ -32,9 +32,9 @@ jobs:
         shell: bash
         run: |
           mkdir release
-          cp server/build/libs/ArchLOD-0.2.0.jar release/LODServer-0.2.0.jar
-          cp client/build/libs/taixue-lod-client-0.2.0.jar release/LODClient-0.2.0+mc1.21.11.jar
-          cp client-26.3/build/libs/lodclient-0.2.0+mc26.3.jar release/LODClient-0.2.0+mc26.3.jar
+          cp server/build/libs/ArchLOD-0.2.0.jar release/LOD-S-0.2.0.jar
+          cp client/build/libs/taixue-lod-client-0.2.0.jar release/LOD-C-0.2.0+mc1.21.11.jar
+          cp client-26.3/build/libs/lodclient-0.2.0+mc26.3.jar release/LOD-C-0.2.0+mc26.3.jar
           cp README.txt LICENSE release/
           cp -r third-party release/
           cd release

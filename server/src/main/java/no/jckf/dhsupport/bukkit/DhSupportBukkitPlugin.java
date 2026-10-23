@@ -34,7 +34,7 @@ public final class DhSupportBukkitPlugin extends JavaPlugin {
         }
         scheduler.runTimer(()->DhGuard.watch(dhSupport),1,5);
         scheduler.runTimer(()->{dhSupport.getGenerationTracker().prune();dhSupport.updateTouchedLods();},20,Math.max(20,getConfig().getInt("lod_refresh_interval",15)*20L));
-        getCommand("dhs").setExecutor(new DhsCommand(this));getCommand("dh").setExecutor(new DhCommand(this));
+        getCommand("lod").setExecutor(new LodCommand(this));
         getLogger().info("ARCH LOD ready: Voxy LSS v20 + DH v16, world permission enforced, existing terrain only");
     }
     public void onDisable() {

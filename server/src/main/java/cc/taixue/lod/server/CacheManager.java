@@ -54,7 +54,7 @@ public final class CacheManager implements AutoCloseable,Listener {
  public boolean command(CommandSender sender,String[] args){
   if(args.length==0||args[0].equals("status")){sender.sendMessage(status);return true;}
   if(args[0].equals("trim")){trim().whenComplete((s,e)->Bukkit.getScheduler().runTask(plugin,()->sender.sendMessage(e==null?s:e.toString())));return true;}
-  sender.sendMessage("/dhs cache status|trim");return true;
+  sender.sendMessage("/lod cache status|trim");return true;
  }
  public void close(){worker.shutdownNow();HandlerList.unregisterAll(this);}
 }

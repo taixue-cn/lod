@@ -1,3 +1,5 @@
+LOD — 服务端命令 /lod（别名 /lod-s），客户端命令 /lod-c
+
 ArchLOD 0.2.0 — ARCH 共享远景缓存
 
 适配目标
@@ -10,15 +12,15 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
 功能矩阵
   服务器没有 ArchLOD：
     原版客户端：保持原功能。
-    Voxy：保持本地采集功能；加 Taixue LOD Bridge 也不会影响连接。
+    Voxy：保持本地采集功能；加 LOD-C 也不会影响连接。
     DH：保持原有本地生成/缓存功能。
   服务器安装 ArchLOD：
     原版客户端：保持原功能，不主动接收模型。
     仅 Voxy：保持本地采集，不具备服务器远景接收能力。
-    Voxy + Taixue LOD Bridge：共享远景、个人下载世界名单、协商缓存回传。
+    Voxy + LOD-C：共享远景、个人下载世界名单、协商缓存回传。
     Voxy + 公共 LSS v20：使用相同公开协议下载，取决于 LSS 自身的配置。
     DH 3.3.3：直接支持服务器远景，不需要 Taixue mod。
-    DH + Taixue LOD Bridge：额外提供个人下载世界名单。
+    DH + LOD-C：额外提供个人下载世界名单。
     Taixue mod、但无 Voxy/DH：不请求地形，正常游戏。
     同时装公共 LSS/VSS 与 Taixue mod：Taixue mod 让出所有通道，避免重复
     注册；此时 Taixue 的上传和个人世界名单功能不启用。
@@ -33,18 +35,18 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
     lod.worlds.entries: 世界名、维度 key、世界 UUID；支持 * 通配符。
   whitelist 空列表：全部禁用。blacklist 空列表：不额外排除世界。
   名单同时控制新缓存生成、读取和发送，DH 预生成也遵守名单。
-  修改配置后 /dhs reload，或直接使用：
-    /dhs lodworlds
-    /dhs lodworlds mode whitelist
-    /dhs lodworlds add main-city
-    /dhs lodworlds remove main-city
+  修改配置后 /lod reload，或直接使用：
+    /lod lodworlds
+    /lod lodworlds mode whitelist
+    /lod lodworlds add main-city
+    /lod lodworlds remove main-city
   管理命令要求 distant_horizons.admin（默认 OP）。
   玩家装 Taixue mod 后：
-    /lodclient radius 64
-    /lodclient worlds
-    /lodclient worlds mode whitelist
-    /lodclient worlds add current
-    /lodclient worlds remove current
+    /lod-c radius 64
+    /lod-c worlds
+    /lod-c worlds mode whitelist
+    /lod-c worlds add current
+    /lod-c worlds remove current
   个人配置按服务器地址保存在 config/taixue-lod-worlds.json，只能缩小服务器
   许可范围。建议用 current 添加准确的维度 key。下载距离取服务器上限
   lod.radius-chunks 与个人 radius；个人默认 64 chunks，可选 8～128。
@@ -125,7 +127,7 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
       refresh-on-unload: true
   单位为 MiB，统计 gzip 文件及 SQLite 中 DH 压缩模型/信标载荷的合计。
   数据库元数据、文件系统分配和维护期间的临时空间不计入模型预算。
-  修改后 /dhs reload；/dhs cache status 查看状态，/dhs cache trim 立即清理。
+  修改后 /lod reload；/lod cache status 查看状态，/lod cache trim 立即清理。
   维护任务周期性执行，写入后可能暂时超过限额，下一轮维护收敛。
   全局 -1 不限制总量，有限的世界限额仍然生效；世界显式 -1 不自动删除，
   也不会为了全局限额而删除该世界。保护世界本身超过全局限额时会报告。
@@ -148,8 +150,8 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
           protocols: [dh]
   global 是默认设置，by_world 可覆盖 enabled、protocols；仍服从世界白/黑名单。
   enabled 控制启动/配置重载后的自动预热。未加载的世界需先加载。
-  /dhs warm start all 或 /dhs warm start main-city 手动扫描与刷新。
-  /dhs warm status 查看每个世界进度；/dhs warm stop all 停止后续工作。
+  /lod warm start all 或 /lod warm start main-city 手动扫描与刷新。
+  /lod warm status 查看每个世界进度；/lod warm stop all 停止后续工作。
   手动 start 可启动尚未设为自动预热的世界，仍使用该世界的协议选择。
   全局每 tick 1～8 个扫描项、最多两个活动任务；DH 的 4×4 chunk 模型按区段
   合并生成。缺少的相邻区块作为空白处理，不会因此生成新地形。
@@ -158,3 +160,6 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
   世界白/黑名单仍决定是否生成与分发，两套协议的玩家权限检查保持生效。
 
 Minecraft 26.3 Fabric client: see client-26.3/README.txt. This is a separate Java 25 build; the original client and server remain Java 21 builds.
+
+命令命名：/dhs 和 /lodclient 已改为 /lod、/lod-c。/lod-s 是 /lod 的别名。
+服务端沿用 ArchLOD 插件标识和数据目录、原权限节点，以继续使用现有配置和缓存；日志前缀为 LOD-S。客户端显示名称为 LOD-C。
