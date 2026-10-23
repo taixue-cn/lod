@@ -85,7 +85,7 @@ class LodClient : ClientModInitializer {
         ClientPlayConnectionEvents.JOIN.register { _, _, _ -> reset() }
         ClientPlayConnectionEvents.DISCONNECT.register { _, _ -> reset() }
         ClientTickEvents.END_CLIENT_TICK.register(::tick)
-        logger.info("LOD-C initialized; native Voxy/DH behavior remains available")
+        logger.info("LodClient initialized; native Voxy/DH behavior remains available")
     }
 
     private fun reset() {

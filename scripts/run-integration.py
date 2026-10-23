@@ -6,6 +6,7 @@ from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument('--work-dir',type=Path,required=True)
 p.add_argument('--minecraft-protocol',type=Path,required=True)
+p.add_argument('--legacy-data',action='store_true')
 p.add_argument('--via-jar',type=Path)
 p.add_argument('--client-version',choices=['1.21.11','26.3'],default='1.21.11')
 p.add_argument('--native-mode',choices=['voxy','fallback','dh'])
@@ -24,15 +25,17 @@ for name in ['libraries','cache']:
  shutil.copytree(runtime/name,root/name)
 shutil.copytree(runtime/'versions/1.21.4',root/'versions/1.21.4')
 shutil.copy2(runtime/'paper-1.21.4-232.jar',root/'server.jar')
-for src in [project/'server/build/libs/ArchLOD-0.2.0.jar',project/'server/build/libs/ArchLODFixture.jar',(a.via_jar or runtime/'plugins/ViaVersion-5.7.0.jar')]:
- if a.without_server_plugin and src.name.startswith('ArchLOD'):continue
+for src in [project/'server/build/libs/LodServer-0.2.0.jar',project/'server/build/libs/LodServerFixture.jar',(a.via_jar or runtime/'plugins/ViaVersion-5.7.0.jar')]:
+ if a.without_server_plugin and src.name.startswith('LodServer'):continue
  shutil.copy2(src,root/'plugins'/src.name)
 if a.worldedit:
  shutil.copy2(runtime/'plugins/FastAsyncWorldEdit-Paper-2.15.1-SNAPSHOT-1282.jar',root/'plugins/FastAsyncWorldEdit.jar')
  (root/'plugins/FastAsyncWorldEdit').mkdir()
  (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent"\n')
 cfg=project.joinpath('server/src/main/resources/config.yml').read_text().replace('upload:\n  enabled: false','upload:\n  enabled: true').replace('  allowed-players: []','  allowed-players: ["*"]').replace('  blocked-players: []','  blocked-players: ["LODBlocked"]').replace('  cooldown-seconds: 5','  cooldown-seconds: 1').replace('  refresh-on-unload: true','  refresh-on-unload: false')
-root.joinpath('plugins/ArchLOD').mkdir();root.joinpath('plugins/ArchLOD/config.yml').write_text(cfg)
+data=root/('plugins/ArchLOD' if a.legacy_data else 'plugins/LodServer')
+data.mkdir();(data/'config.yml').write_text(cfg)
+if a.legacy_data:(data/'migration-marker.txt').write_text('existing cache/config directory')
 with socket.socket() as s:s.bind(('127.0.0.1',0));port=s.getsockname()[1]
 root.joinpath('eula.txt').write_text('eula=true\n')
 root.joinpath('server.properties').write_text(f'''server-ip=127.0.0.1
@@ -68,6 +71,18 @@ with root.joinpath('console.log').open('w') as log:
    time.sleep(.5)
   else:raise RuntimeError('fixture did not start')
   time.sleep(2)
+  if a.legacy_data:
+   assert not (root/'plugins/ArchLOD').exists()
+   assert (root/'plugins/LodServer/migration-marker.txt').read_text()=='existing cache/config directory'
+   report['legacy_data_migrated']=True
+  if not a.without_server_plugin:
+   commands=['lods','lods cache status','lods warm status','lods lodworlds','lods reload']
+   for command in commands:server.stdin.write(command+'\n');server.stdin.flush();time.sleep(.2)
+   time.sleep(1)
+   console=root.joinpath('console.log').read_text(errors='replace')
+   assert 'Usage: /lods cache|warm|' in console and 'LOD worlds:' in console
+   assert 'Unknown command' not in console and 'Unhandled exception' not in console
+   report['server_commands']=commands
   if a.native_mode:
    env=dict(os.environ)
    env['ARCH_LOD_CLIENT_VERSION']=a.client_version
@@ -89,8 +104,8 @@ with root.joinpath('console.log').open('w') as log:
    report.update({'client_returncode':result.returncode,'client_stdout':result.stdout[-2000:]})
    if result.returncode:raise RuntimeError(result.stderr[-2000:] or result.stdout[-2000:])
    report['matrix']=json.loads(root.joinpath('matrix.json').read_text())
-  report['voxy_cache_files']=len(list(root.joinpath('plugins/ArchLOD/voxy-cache').rglob('*.gz')))
-  if not a.without_server_plugin:report['dh_database_bytes']=root.joinpath('plugins/ArchLOD/data.sqlite').stat().st_size
+  report['voxy_cache_files']=len(list(root.joinpath('plugins/LodServer/voxy-cache').rglob('*.gz')))
+  if not a.without_server_plugin:report['dh_database_bytes']=root.joinpath('plugins/LodServer/data.sqlite').stat().st_size
   report['status']='PASS'
  except Exception as e:
   report['status']='FAIL';report['error']=str(e);raise

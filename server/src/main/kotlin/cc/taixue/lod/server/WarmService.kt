@@ -8,7 +8,6 @@ import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
 import org.bukkit.Bukkit
 import org.bukkit.ChunkSnapshot
 import org.bukkit.World
@@ -23,7 +22,7 @@ import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
 
 /** Server-owned prewarming scans saved terrain; it never generates unexplored chunks. */
-class WarmService(private val plugin: DhSupportBukkitPlugin) : AutoCloseable, Listener {
+class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     private data class Key(val world: UUID, val x: Int, val z: Int)
 
     private class Job(val world: World, val protocols: Set<String>, val region: Path) {
@@ -265,7 +264,7 @@ class WarmService(private val plugin: DhSupportBukkitPlugin) : AutoCloseable, Li
             return true
         }
         if (action !in setOf("start", "stop")) {
-            sender.sendMessage("/lod warm start|stop|status [world|all]")
+            sender.sendMessage("/lods warm start|stop|status [world|all]")
             return true
         }
         var changed = 0

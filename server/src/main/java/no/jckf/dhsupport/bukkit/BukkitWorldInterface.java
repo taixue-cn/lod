@@ -18,6 +18,8 @@
 
 package no.jckf.dhsupport.bukkit;
 
+import cc.taixue.lod.server.LodServer;
+
 import no.jckf.dhsupport.core.Coordinates;
 import no.jckf.dhsupport.core.Utils;
 import no.jckf.dhsupport.core.configuration.Configuration;
@@ -42,7 +44,7 @@ public class BukkitWorldInterface implements WorldInterface
 
     protected static boolean ASYNC_LOAD_WARNING_SENT = false;
 
-    protected DhSupportBukkitPlugin plugin;
+    protected LodServer plugin;
 
     protected World world;
 
@@ -84,7 +86,7 @@ public class BukkitWorldInterface implements WorldInterface
 
     protected Integer dummyMaxY;
 
-    public BukkitWorldInterface(DhSupportBukkitPlugin plugin, World world, Configuration config)
+    public BukkitWorldInterface(LodServer plugin, World world, Configuration config)
     {
         this.plugin = plugin;
         this.world = world;

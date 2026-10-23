@@ -1,9 +1,9 @@
 package cc.taixue.lod.fixture
 
+import cc.taixue.lod.server.LodServer
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
 import org.bukkit.Bukkit
 import org.bukkit.GameRule
 import org.bukkit.Location
@@ -79,7 +79,7 @@ class Fixture : JavaPlugin(), Listener {
         logger.info("LOD_FIXTURE_READY")
     }
 
-    private fun lod() = Bukkit.getPluginManager().getPlugin("ArchLOD") as DhSupportBukkitPlugin
+    private fun lod() = Bukkit.getPluginManager().getPlugin("LodServer") as LodServer
 
     private fun policy(mode: String, entries: List<String>) {
         lod().config.set("lod.worlds.mode", mode)
@@ -90,6 +90,8 @@ class Fixture : JavaPlugin(), Listener {
     @EventHandler
     fun join(event: PlayerJoinEvent) {
         val player = event.player
+        // Paper sends a margin beyond view-distance=2; keep the native probe outside that margin.
+        if (player.name == "LODNative") player.teleport(Location(publicWorld, -63.5, 64.0, -63.5))
         val attachment = player.addAttachment(this)
         attachments[player.uniqueId] = attachment
         attachment.setPermission("archlod.use", true)

@@ -119,7 +119,7 @@ internal class WorldPreferences {
     private fun registerCommands() {
         ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
             dispatcher.register(
-                literal("lod-c")
+                literal("lodc")
                     .then(
                         literal("radius")
                             .executes {

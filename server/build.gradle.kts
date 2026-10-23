@@ -17,7 +17,7 @@ dependencies {
 }
 
 tasks.shadowJar {
-    archiveFileName.set("ArchLOD-0.2.0.jar")
+    archiveFileName.set("LodServer-0.2.0.jar")
     mergeServiceFiles()
     relocate("org.json", "cc.taixue.lod.lib.json")
     relocate("org.tukaani.xz", "cc.taixue.lod.lib.xz")
@@ -34,6 +34,6 @@ val fixture by sourceSets.creating {
 
 tasks.register<Jar>("fixtureJar") {
     dependsOn(tasks.named(fixture.classesTaskName))
-    archiveFileName.set("ArchLODFixture.jar")
+    archiveFileName.set("LodServerFixture.jar")
     from(fixture.output)
 }

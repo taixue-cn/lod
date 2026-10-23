@@ -3,6 +3,7 @@ package cc.taixue.lod.fixture
 import cc.taixue.lod.core.CacheRetention
 import cc.taixue.lod.core.ColumnCache
 import cc.taixue.lod.server.BackgroundChunks
+import cc.taixue.lod.server.LodServer
 import java.io.ByteArrayInputStream
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -13,7 +14,6 @@ import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
 import org.bukkit.Bukkit
 import org.bukkit.GameRule
 import org.bukkit.Location
@@ -29,8 +29,7 @@ import org.bukkit.generator.ChunkGenerator
 import org.bukkit.plugin.java.JavaPlugin
 
 /** Actual Paper, SQLite and filesystem checks; excluded from release artifacts. */
-class CacheFixture(private val fixture: JavaPlugin, private val lod: DhSupportBukkitPlugin) :
-    Listener {
+class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) : Listener {
     private val passed = mutableListOf<String>()
     private val target = mutableSetOf<UUID>()
     private val generated = AtomicInteger()

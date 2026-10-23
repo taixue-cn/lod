@@ -1,4 +1,6 @@
 package no.jckf.dhsupport.bukkit;
+
+import cc.taixue.lod.server.LodServer;
 import no.jckf.dhsupport.core.scheduling.Scheduler;
 import org.bukkit.Bukkit;
 import java.util.UUID;
@@ -7,10 +9,10 @@ import java.util.function.Supplier;
 
 /** Paper-only scheduler; world/snapshot access always executes on the main thread. */
 public final class BukkitScheduler implements Scheduler {
-    private final DhSupportBukkitPlugin plugin;
+    private final LodServer plugin;
     private final ExecutorService workers;
     private final ScheduledExecutorService timers;
-    public BukkitScheduler(DhSupportBukkitPlugin plugin) {
+    public BukkitScheduler(LodServer plugin) {
         this.plugin=plugin;
         int n=Math.clamp(plugin.getConfig().getInt("scheduler_threads",2),1,4);
         workers=new ThreadPoolExecutor(n,n,30,TimeUnit.SECONDS,new ArrayBlockingQueue<>(128),r->{var t=new Thread(r,"ArchLOD-DH");t.setDaemon(true);return t;},new ThreadPoolExecutor.AbortPolicy());

@@ -1,13 +1,12 @@
-name: ArchLOD
-prefix: LOD-S
+name: LodServer
+prefix: LodServer
 version: '0.2.0'
-main: no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
+main: cc.taixue.lod.server.LodServer
 api-version: '1.21.4'
 softdepend: [Multiverse-Core, LuckPerms, ViaVersion, FastAsyncWorldEdit, WorldEdit]
 description: Permission-aware server LOD cache for Voxy and Distant Horizons
 commands:
-  lod:
-    aliases: [lod-s]
+  lods:
     description: Manage shared LOD cache, worlds, and prewarming
     permission: distant_horizons.admin
 permissions:

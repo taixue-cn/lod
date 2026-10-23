@@ -18,7 +18,7 @@
 
 package no.jckf.dhsupport.bukkit.handler;
 
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin;
+import cc.taixue.lod.server.LodServer;
 import no.jckf.dhsupport.core.DhSupport;
 import no.jckf.dhsupport.core.configuration.DhsConfig;
 import org.bukkit.entity.Player;
@@ -32,9 +32,9 @@ import java.util.concurrent.TimeUnit;
 
 public class PlayerHandler implements Listener
 {
-    protected DhSupportBukkitPlugin plugin;
+    protected LodServer plugin;
 
-    public PlayerHandler(DhSupportBukkitPlugin plugin)
+    public PlayerHandler(LodServer plugin)
     {
         this.plugin = plugin;
     }

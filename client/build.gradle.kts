@@ -51,7 +51,7 @@ loom {
     }
 }
 
-base { archivesName.set("taixue-lod-client") }
+base { archivesName.set("LodClient") }
 
 tasks.jar {
     from(

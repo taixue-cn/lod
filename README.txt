@@ -1,6 +1,6 @@
-LOD — 服务端命令 /lod（别名 /lod-s），客户端命令 /lod-c
+LodServer / LodClient — 服务端命令 /lods，客户端命令 /lodc
 
-ArchLOD 0.2.0 — ARCH 共享远景缓存
+LodServer 0.2.0 — ARCH 共享远景缓存
 
 适配目标
   服务端：arch 启动脚本实际使用的 Paper 1.21.4-232 / Java 21。
@@ -10,17 +10,17 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
   mod；不修改、不打包 Voxy 本体。DH 原版自带接收能力。
 
 功能矩阵
-  服务器没有 ArchLOD：
+  服务器没有 LodServer：
     原版客户端：保持原功能。
-    Voxy：保持本地采集功能；加 LOD-C 也不会影响连接。
+    Voxy：保持本地采集功能；加 LodClient 也不会影响连接。
     DH：保持原有本地生成/缓存功能。
-  服务器安装 ArchLOD：
+  服务器安装 LodServer：
     原版客户端：保持原功能，不主动接收模型。
     仅 Voxy：保持本地采集，不具备服务器远景接收能力。
-    Voxy + LOD-C：共享远景、个人下载世界名单、协商缓存回传。
+    Voxy + LodClient：共享远景、个人下载世界名单、协商缓存回传。
     Voxy + 公共 LSS v20：使用相同公开协议下载，取决于 LSS 自身的配置。
     DH 3.3.3：直接支持服务器远景，不需要 Taixue mod。
-    DH + LOD-C：额外提供个人下载世界名单。
+    DH + LodClient：额外提供个人下载世界名单。
     Taixue mod、但无 Voxy/DH：不请求地形，正常游戏。
     同时装公共 LSS/VSS 与 Taixue mod：Taixue mod 让出所有通道，避免重复
     注册；此时 Taixue 的上传和个人世界名单功能不启用。
@@ -30,23 +30,23 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
   每次读取前、异步任务结束后、每个实际发送前重新检查；换世界、退出、
   撤销权限会使旧任务失效。只提供玩家当前世界，不能通过伪造世界 ID 获取
   其它世界的模型或初始化信息；跨世界预下载不开放。
-  管理员配置 plugins/ArchLOD/config.yml：
+  管理员配置 plugins/LodServer/config.yml：
     lod.worlds.mode: blacklist 或 whitelist
     lod.worlds.entries: 世界名、维度 key、世界 UUID；支持 * 通配符。
   whitelist 空列表：全部禁用。blacklist 空列表：不额外排除世界。
   名单同时控制新缓存生成、读取和发送，DH 预生成也遵守名单。
-  修改配置后 /lod reload，或直接使用：
-    /lod lodworlds
-    /lod lodworlds mode whitelist
-    /lod lodworlds add main-city
-    /lod lodworlds remove main-city
+  修改配置后 /lods reload，或直接使用：
+    /lods lodworlds
+    /lods lodworlds mode whitelist
+    /lods lodworlds add main-city
+    /lods lodworlds remove main-city
   管理命令要求 distant_horizons.admin（默认 OP）。
   玩家装 Taixue mod 后：
-    /lod-c radius 64
-    /lod-c worlds
-    /lod-c worlds mode whitelist
-    /lod-c worlds add current
-    /lod-c worlds remove current
+    /lodc radius 64
+    /lodc worlds
+    /lodc worlds mode whitelist
+    /lodc worlds add current
+    /lodc worlds remove current
   个人配置按服务器地址保存在 config/taixue-lod-worlds.json，只能缩小服务器
   许可范围。建议用 current 添加准确的维度 key。下载距离取服务器上限
   lod.radius-chunks 与个人 radius；个人默认 64 chunks，可选 8～128。
@@ -72,8 +72,8 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
 
 缓存与负载
   只读取已有区块，远景请求不生成新的地图区块。
-  Voxy gzip 缓存在 plugins/ArchLOD/voxy-cache，默认不因年龄过期；限额由下面的共用策略管理。
-  DH 缓存在 plugins/ArchLOD/data.sqlite。缓存按世界 UUID 隔离。
+  Voxy gzip 缓存在 plugins/LodServer/voxy-cache，默认不因年龄过期；限额由下面的共用策略管理。
+  DH 缓存在 plugins/LodServer/data.sqlite。缓存按世界 UUID 隔离。
   普通方块事件、WorldEdit/FAWE 编辑会触发更新；Voxy 的有效期还会兜底其它
   绕过事件的修改。世界名单变化不删除历史缓存，但禁止向玩家发送。
   FAWE 必须允许本插件的 extent；在 FAWE config.yml 的 extent.allowed-plugins
@@ -84,10 +84,10 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
   全局最多 4 个处理任务、单玩家队列 256。初次远景填充会逐步完成。
 
 安装与回退
-  服务端 jar 放 plugins/ArchLOD-0.2.0.jar；下次完整启动加载。
+  服务端 jar 放 plugins/LodServer-0.2.0.jar；下次完整启动加载。
   客户端 jar 放 Fabric 客户端 mods/，并装 Fabric API 和原版 Voxy/Sodium。
   不要把客户端 jar 放服务器 plugins 根目录。DH 玩家可不装此客户端 jar。
-  回退：服务器停服时移走 ArchLOD jar；客户端移走 Taixue mod 即可。
+  回退：服务器停服时移走 LodServer jar；客户端移走 LodClient mod 即可。
   不需要删除原有 Voxy/DH 缓存。不要使用热重载工具加载本插件。
 
 源码与构建
@@ -128,7 +128,7 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
       refresh-on-unload: true
   单位为 MiB，统计 gzip 文件及 SQLite 中 DH 压缩模型/信标载荷的合计。
   数据库元数据、文件系统分配和维护期间的临时空间不计入模型预算。
-  修改后 /lod reload；/lod cache status 查看状态，/lod cache trim 立即清理。
+  修改后 /lods reload；/lods cache status 查看状态，/lods cache trim 立即清理。
   维护任务周期性执行，写入后可能暂时超过限额，下一轮维护收敛。
   全局 -1 不限制总量，有限的世界限额仍然生效；世界显式 -1 不自动删除，
   也不会为了全局限额而删除该世界。保护世界本身超过全局限额时会报告。
@@ -151,8 +151,8 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
           protocols: [dh]
   global 是默认设置，by_world 可覆盖 enabled、protocols；仍服从世界白/黑名单。
   enabled 控制启动/配置重载后的自动预热。未加载的世界需先加载。
-  /lod warm start all 或 /lod warm start main-city 手动扫描与刷新。
-  /lod warm status 查看每个世界进度；/lod warm stop all 停止后续工作。
+  /lods warm start all 或 /lods warm start main-city 手动扫描与刷新。
+  /lods warm status 查看每个世界进度；/lods warm stop all 停止后续工作。
   手动 start 可启动尚未设为自动预热的世界，仍使用该世界的协议选择。
   全局每 tick 1～8 个扫描项、最多两个活动任务；DH 的 4×4 chunk 模型按区段
   合并生成。缺少的相邻区块作为空白处理，不会因此生成新地形。
@@ -162,5 +162,11 @@ ArchLOD 0.2.0 — ARCH 共享远景缓存
 
 Minecraft 26.3 Fabric client: see client-26.3/README.txt. This is a separate Java 25 build; the original client and server remain Java 21 builds.
 
-命令命名：/dhs 和 /lodclient 已改为 /lod、/lod-c。/lod-s 是 /lod 的别名。
-服务端沿用 ArchLOD 插件标识和数据目录、原权限节点，以继续使用现有配置和缓存；日志前缀为 LOD-S。客户端显示名称为 LOD-C。
+命名与升级
+  插件名为 LodServer，mod 名为 LodClient；指令分别为 /lods、/lodc。
+  自有入口为 cc.taixue.lod.server.LodServer、cc.taixue.lod.client.LodClient。
+  第三方包名、网络协议标识、客户端 mod ID 与配置文件名保持兼容。
+  首次启动前备份旧 plugins/ArchLOD/，移走旧版服务端 jar，安装 LodServer jar。
+  插件会在创建默认配置前把旧 ArchLOD 数据目录整体迁移到 LodServer。
+  若两个非空目录同时存在，拒绝启动且不覆盖文件，需管理员先合并数据。
+  回退到旧版时，应在停服后将目录改回 ArchLOD；配置与缓存格式保持兼容。

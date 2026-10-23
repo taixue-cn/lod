@@ -1,11 +1,6 @@
-package no.jckf.dhsupport.bukkit
+package cc.taixue.lod.server
 
-import cc.taixue.lod.server.CacheManager
-import cc.taixue.lod.server.DhGuard
-import cc.taixue.lod.server.VoxyService
-import cc.taixue.lod.server.WarmService
-import cc.taixue.lod.server.WorldAccess
-import cc.taixue.lod.server.WorldEditInvalidation
+import no.jckf.dhsupport.bukkit.BukkitScheduler
 import no.jckf.dhsupport.bukkit.commands.LodCommand
 import no.jckf.dhsupport.bukkit.handler.ConfigLoader
 import no.jckf.dhsupport.bukkit.handler.PlayerHandler
@@ -15,11 +10,8 @@ import no.jckf.dhsupport.core.DhSupport
 import org.bukkit.World
 import org.bukkit.plugin.java.JavaPlugin
 
-/**
- * LOD integration of upstream DH Support. Its package name remains stable for the upstream
- * adapters.
- */
-class DhSupportBukkitPlugin : JavaPlugin() {
+/** Paper entry point for the shared Voxy/DH server cache. */
+class LodServer : JavaPlugin() {
     lateinit var dhSupport: DhSupport
         private set
 
@@ -41,10 +33,17 @@ class DhSupportBukkitPlugin : JavaPlugin() {
     private var worldEdit: WorldEditInvalidation? = null
 
     override fun onEnable() {
+        check(server.pluginManager.getPlugin("ArchLOD") == null) {
+            "Remove the old ArchLOD plugin jar before starting LodServer; data was not moved."
+        }
+        LegacyDataDirectory.migrate(
+            dataFolder.toPath().resolveSibling("ArchLOD"),
+            dataFolder.toPath(),
+        )
         saveDefaultConfig()
         dhSupport =
             DhSupport(pluginMeta.version, server.minecraftVersion).apply {
-                logger = this@DhSupportBukkitPlugin.logger
+                logger = this@LodServer.logger
                 dataDirectory = dataFolder.absolutePath
             }
         loadDhsConfig()
@@ -79,9 +78,9 @@ class DhSupportBukkitPlugin : JavaPlugin() {
             20,
             maxOf(20, config.getInt("lod_refresh_interval", 15) * 20L),
         )
-        getCommand("lod")!!.setExecutor(LodCommand(this))
+        getCommand("lods")!!.setExecutor(LodCommand(this))
         logger.info(
-            "ARCH LOD ready: Voxy LSS v20 + DH v16, world permission enforced, existing terrain only"
+            "LodServer ready: Voxy LSS v20 + DH v16, world permission enforced, existing terrain only"
         )
     }
 

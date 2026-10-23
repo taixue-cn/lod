@@ -1,8 +1,8 @@
-name: ArchLODFixture
+name: LodServerFixture
 version: '0.2.0'
 main: cc.taixue.lod.fixture.Fixture
 api-version: '1.21.4'
-depend: [ArchLOD]
+depend: [LodServer]
 commands:
   lodfixture:
     description: Isolated loopback fixture control

@@ -11,7 +11,7 @@ modern=version=='26.3'
 loader='0.20.1' if modern else '0.18.4'
 api='0.165.0+26.3' if modern else '0.141.3+1.21.11'
 client_project=project/'client-26.3' if modern else project/'client'
-client_jar='lodclient-0.2.0+mc26.3' if modern else 'taixue-lod-client-0.2.0'
+client_jar='LodClient-0.2.0+mc26.3' if modern else 'LodClient-0.2.0'
 info=json.loads((gradle/f'fabric-loom/{version}/mojang_minecraft_info.json').read_text())
 profile=json.load(urllib.request.urlopen(f'https://meta.fabricmc.net/v2/versions/loader/{version}/{loader}/profile/json'))
 def fetch(item):

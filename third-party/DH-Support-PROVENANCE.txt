@@ -4,3 +4,5 @@ License: GPL-3.0-or-later; original headers retained.
 Local modifications: permission/lease enforcement, bounded requests, Bukkit scheduling, startup/shutdown, no metrics or update polling.
 
 0.2.0 additions: shared retention inventory/eviction, server prewarm and unload refresh, FULL-chunk guards, snapshot-only missing neighbors, serialized section refresh, complete XZ stream framing.
+
+Naming compatibility: the first-party Paper entry point is cc.taixue.lod.server.LodServer; upstream Bukkit adapters import this type. Original upstream namespaces and licenses are retained.

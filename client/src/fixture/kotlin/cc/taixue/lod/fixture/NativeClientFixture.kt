@@ -2,9 +2,11 @@ package cc.taixue.lod.fixture
 
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonObject
+import com.mojang.brigadier.CommandDispatcher
 import java.nio.file.Files
 import java.nio.file.Path
 import net.fabricmc.api.ClientModInitializer
+import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.loader.api.FabricLoader
 import net.minecraft.client.Minecraft
@@ -20,6 +22,7 @@ class NativeClientFixture : ClientModInitializer {
     private var ticks = 0
     private var done = false
     private var connecting = false
+    private var commandChecked = false
     @Volatile private var dhReading = false
     @Volatile private var dhGold = false
     @Volatile private var dhError = ""
@@ -48,6 +51,12 @@ class NativeClientFixture : ClientModInitializer {
                         finish(client, false, "no multiplayer world")
                     return@register
                 }
+                if (
+                    System.getenv("ARCH_LOD_OMIT_BRIDGE") != "1" &&
+                        !commandChecked &&
+                        !checkClientCommand(client)
+                )
+                    return@register
                 when (System.getProperty("archlod.fixture.mode", "voxy")) {
                     "fallback" ->
                         if (ticks > 400) {
@@ -71,6 +80,10 @@ class NativeClientFixture : ClientModInitializer {
                                 )
                                 .apply { isAccessible = true }
                         val body = read.invoke(null, level, 4, 4) as ByteArray?
+                        Files.writeString(
+                            Path.of(System.getProperty("archlod.fixture.report") + ".terrain"),
+                            "bytes=${body?.size}, gold=${body?.toString(Charsets.ISO_8859_1)?.contains("minecraft:gold_block")}, vanilla=${level.chunkSource.hasChunk(4, 4)}, accepted=${acceptedColumn()}",
+                        )
                         if (
                             body != null &&
                                 body
@@ -124,6 +137,32 @@ class NativeClientFixture : ClientModInitializer {
                 finish(client, false, error.toString())
             }
         }
+    }
+
+    /**
+     * Execute the real client command dispatcher, including the handler's saved preference change.
+     */
+    private fun checkClientCommand(client: Minecraft): Boolean {
+        val manager =
+            try {
+                Class.forName("net.fabricmc.fabric.api.client.command.v2.ClientCommandManager")
+            } catch (_: ClassNotFoundException) {
+                Class.forName("net.fabricmc.fabric.api.client.command.v2.ClientCommands")
+            }
+        @Suppress("UNCHECKED_CAST")
+        val dispatcher =
+            manager.getMethod("getActiveDispatcher").invoke(null)
+                as CommandDispatcher<FabricClientCommandSource>? ?: return false
+        val source = client.connection!!.suggestionsProvider as FabricClientCommandSource
+        check(dispatcher.execute("lodc radius 48", source) == 1)
+        val entry = entries().single()
+        val preferences =
+            entry.javaClass.getDeclaredField("preferences").apply { isAccessible = true }.get(entry)
+        val radius = preferences.javaClass.getDeclaredMethod("radius").apply { isAccessible = true }
+        check(radius.invoke(preferences) == 48)
+        check(dispatcher.execute("lodc radius 64", source) == 1)
+        commandChecked = true
+        return true
     }
 
     private fun entries(): List<Any> =
@@ -239,6 +278,10 @@ class NativeClientFixture : ClientModInitializer {
                 addProperty("detail", detail)
                 addProperty("ticks", ticks)
                 addProperty("production_server", false)
+                addProperty(
+                    "client_command",
+                    if (commandChecked) "lodc radius verified" else "not verified",
+                )
             }
         Files.writeString(path, GsonBuilder().setPrettyPrinting().create().toJson(json))
         client.stop()

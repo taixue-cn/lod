@@ -18,13 +18,13 @@
 
 package no.jckf.dhsupport.bukkit.handler;
 
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin;
+import cc.taixue.lod.server.LodServer;
 
 public abstract class Handler
 {
-    protected DhSupportBukkitPlugin plugin;
+    protected LodServer plugin;
 
-    public Handler(DhSupportBukkitPlugin plugin)
+    public Handler(LodServer plugin)
     {
         this.plugin = plugin;
     }

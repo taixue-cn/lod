@@ -93,7 +93,7 @@ tasks.processResources {
     }
 }
 
-base { archivesName.set("lodclient") }
+base { archivesName.set("LodClient") }
 
 tasks.jar {
     from(listOf("../third-party/KOTLIN-LICENSE", "../third-party/KOTLIN-PROVENANCE.txt")) {

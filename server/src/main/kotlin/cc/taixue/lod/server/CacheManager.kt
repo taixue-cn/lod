@@ -7,7 +7,6 @@ import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.Executors
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin
 import org.bukkit.Bukkit
 import org.bukkit.World
 import org.bukkit.command.CommandSender
@@ -18,7 +17,7 @@ import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 
 /** One retention policy spans compressed Voxy files and DH model payloads. */
-class CacheManager(private val plugin: DhSupportBukkitPlugin) : AutoCloseable, Listener {
+class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "LOD-cache-retention").apply { isDaemon = true }
     }
@@ -148,7 +147,7 @@ class CacheManager(private val plugin: DhSupportBukkitPlugin) : AutoCloseable, L
                             Runnable { sender.sendMessage(error?.toString() ?: value) },
                         )
                 }
-            else -> sender.sendMessage("/lod cache status|trim")
+            else -> sender.sendMessage("/lods cache status|trim")
         }
         return true
     }

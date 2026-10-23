@@ -19,7 +19,7 @@
 package no.jckf.dhsupport.bukkit.handler;
 
 import no.jckf.dhsupport.bukkit.BukkitWorldInterface;
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin;
+import cc.taixue.lod.server.LodServer;
 import no.jckf.dhsupport.core.configuration.DhsConfig;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
@@ -43,11 +43,11 @@ public class WorldHandler implements Listener
 {
     protected static final String[] EVENT_METHOD_NAMES = { "blockList", "getBlocks", "getBlock", "getLocation", "getChunk" };
 
-    protected DhSupportBukkitPlugin plugin;
+    protected LodServer plugin;
 
     protected Map<String, Method> eventMethods = new HashMap<>();
 
-    public WorldHandler(DhSupportBukkitPlugin plugin)
+    public WorldHandler(LodServer plugin)
     {
         this.plugin = plugin;
 

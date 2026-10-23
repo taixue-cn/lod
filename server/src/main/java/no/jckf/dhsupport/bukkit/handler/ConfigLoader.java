@@ -18,7 +18,7 @@
 
 package no.jckf.dhsupport.bukkit.handler;
 
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin;
+import cc.taixue.lod.server.LodServer;
 import no.jckf.dhsupport.core.configuration.Configuration;
 import no.jckf.dhsupport.core.configuration.DhsConfig;
 import org.bukkit.configuration.MemoryConfiguration;
@@ -26,7 +26,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 public class ConfigLoader extends Handler
 {
-    public ConfigLoader(DhSupportBukkitPlugin plugin)
+    public ConfigLoader(LodServer plugin)
     {
         super(plugin);
     }

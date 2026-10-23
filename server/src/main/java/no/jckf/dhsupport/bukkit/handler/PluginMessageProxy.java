@@ -19,7 +19,7 @@
 package no.jckf.dhsupport.bukkit.handler;
 
 import no.jckf.dhsupport.bukkit.BukkitPluginMessageSender;
-import no.jckf.dhsupport.bukkit.DhSupportBukkitPlugin;
+import cc.taixue.lod.server.LodServer;
 import no.jckf.dhsupport.core.handler.PluginMessageHandler;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -31,7 +31,7 @@ public class PluginMessageProxy extends Handler implements PluginMessageListener
     protected PluginMessageHandler pluginMessageHandler;
     private final java.util.Map<java.util.UUID,long[]> ingress=new java.util.HashMap<>();
 
-    public PluginMessageProxy(DhSupportBukkitPlugin plugin)
+    public PluginMessageProxy(LodServer plugin)
     {
         super(plugin);
     }
