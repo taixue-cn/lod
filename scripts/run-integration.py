@@ -41,7 +41,7 @@ if a.worldedit:
  (root/'plugins/FastAsyncWorldEdit').mkdir()
  (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent"\n')
 cfg=project.joinpath('server/src/main/resources/config.yml').read_text().replace('upload:\n  enabled: false','upload:\n  enabled: true').replace('  allowed-players: []','  allowed-players: ["*"]').replace('  blocked-players: []','  blocked-players: ["LODBlocked"]').replace('  cooldown-seconds: 5','  cooldown-seconds: 1').replace('  refresh-on-unload: true','  refresh-on-unload: false')
-if a.large_radius:cfg=cfg.replace('  radius-chunks: 128','  radius-chunks: 1024')
+if a.large_radius:cfg=cfg.replace('  radius-chunks: 1000','  radius-chunks: 1024')
 data=root/('plugins/ArchLOD' if a.legacy_data else 'plugins/LodServer')
 data.mkdir();(data/'config.yml').write_text(cfg)
 if a.legacy_data:(data/'migration-marker.txt').write_text('existing cache/config directory')

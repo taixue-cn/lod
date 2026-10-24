@@ -66,7 +66,8 @@ internal class WorldPreferences(private val diagnostics: () -> List<String>) {
 
     fun radius(): Int =
         LodLimits.radius(
-            if (current().has("radiusChunks")) current().get("radiusChunks").asInt else 64
+            if (current().has("radiusChunks")) current().get("radiusChunks").asInt
+            else LodLimits.DEFAULT_RADIUS_CHUNKS
         )
 
     fun frame(): ByteArray {

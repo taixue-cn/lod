@@ -167,7 +167,8 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         raw.send(player, CONFIG, output.result())
     }
 
-    private fun radius() = LodLimits.radius(plugin.config.getInt("lod.radius-chunks", 128))
+    private fun radius() =
+        LodLimits.radius(plugin.config.getInt("lod.radius-chunks", LodLimits.DEFAULT_RADIUS_CHUNKS))
 
     private fun revision(key: ColumnCache.Key): Long = revisions[key] ?: 0L
 

@@ -4,6 +4,7 @@ package cc.taixue.lod.core
  * Shared horizontal download bounds; the administrator and player may each choose a lower radius.
  */
 object LodLimits {
+    const val DEFAULT_RADIUS_CHUNKS = 1000
     const val MIN_RADIUS_CHUNKS = 8
     const val MAX_RADIUS_CHUNKS = 1024
 

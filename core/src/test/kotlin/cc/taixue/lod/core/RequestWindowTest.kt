@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test
 class RequestWindowTest {
     @Test
     fun thousandChunkRadiusFitsAndStillHasAnUpperBound() {
+        assertEquals(1000, LodLimits.DEFAULT_RADIUS_CHUNKS)
         assertEquals(1000, LodLimits.radius(1000))
         assertEquals(1024, LodLimits.radius(Int.MAX_VALUE))
         assertEquals(8, LodLimits.radius(-1))

@@ -118,7 +118,10 @@ class WorldAccess(private val plugin: LodServer) : Listener {
     fun inRange(lease: SessionGate.Lease?, chunkX: Long, chunkZ: Long): Boolean {
         if (!valid(lease) || abs(chunkX) > 1_875_000 || abs(chunkZ) > 1_875_000) return false
         val player = Bukkit.getPlayer(lease!!.player) ?: return false
-        val radius = LodLimits.radius(plugin.config.getInt("lod.radius-chunks", 128))
+        val radius =
+            LodLimits.radius(
+                plugin.config.getInt("lod.radius-chunks", LodLimits.DEFAULT_RADIUS_CHUNKS)
+            )
         val x = (player.location.blockX shr 4).toLong()
         val z = (player.location.blockZ shr 4).toLong()
         return abs(x - chunkX) <= radius && abs(z - chunkZ) <= radius

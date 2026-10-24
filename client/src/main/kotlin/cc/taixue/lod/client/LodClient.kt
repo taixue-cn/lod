@@ -33,7 +33,7 @@ class LodClient : ClientModInitializer {
     private var level: ClientLevel? = null
     private var enabled = false
     private var handshook = false
-    private var distance = 64
+    private var distance = LodLimits.DEFAULT_RADIUS_CHUNKS
     private var ticks = 0
     private var cursor = 0
     private var errors = 0L

@@ -166,11 +166,14 @@ class NativeClientFixture : ClientModInitializer {
                 as CommandDispatcher<FabricClientCommandSource>? ?: return false
         val source = client.connection!!.suggestionsProvider as FabricClientCommandSource
         check(dispatcher.execute("lodc status", source) == 1)
-        check(dispatcher.execute("lodc radius 1000", source) == 1)
         val entry = entries().single()
         val preferences =
             entry.javaClass.getDeclaredField("preferences").apply { isAccessible = true }.get(entry)
         val radius = preferences.javaClass.getDeclaredMethod("radius").apply { isAccessible = true }
+        if (!commandChecked) check(radius.invoke(preferences) == 1000)
+        check(dispatcher.execute("lodc radius 48", source) == 1)
+        check(radius.invoke(preferences) == 48)
+        check(dispatcher.execute("lodc radius 1000", source) == 1)
         check(radius.invoke(preferences) == 1000)
         check(dispatcher.execute("lodc radius 64", source) == 1)
         commandChecked = true
