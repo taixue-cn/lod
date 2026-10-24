@@ -292,7 +292,9 @@ prewarm:
   global:
     enabled: false
     protocols: [voxy, dh]
-    chunks-per-tick: 1
+    # Bounded initialization pipeline; two slots are reserved for real-time refreshes.
+    # The obsolete chunks-per-tick setting is no longer used.
+    max-inflight: 32
   by_world: {}
   # Example: main-city: {enabled: true, protocols: [voxy, dh]}
 

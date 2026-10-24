@@ -142,7 +142,7 @@ LodServer 0.2.0 — ARCH 共享远景缓存
       global:
         enabled: false
         protocols: [voxy, dh]
-        chunks-per-tick: 1
+        max-inflight: 32
       by_world:
         main-city:
           enabled: true
@@ -151,10 +151,14 @@ LodServer 0.2.0 — ARCH 共享远景缓存
           protocols: [dh]
   global 是默认设置，by_world 可覆盖 enabled、protocols；仍服从世界白/黑名单。
   enabled 控制启动/配置重载后的自动预热。未加载的世界需先加载。
-  /lods warm start all 或 /lods warm start main-city 手动扫描与刷新。
+  /lods warm start all 或 /lods warm start main-city 手动扫描并补齐缺失模型。
   /lods warm status 查看每个世界进度；/lods warm stop all 停止后续工作。
   手动 start 可启动尚未设为自动预热的世界，仍使用该世界的协议选择。
-  全局每 tick 1～8 个扫描项、最多两个活动任务；DH 的 4×4 chunk 模型按区段
+  初始化跳过有效的 Voxy/DH 缓存，重启后不再逐块重编码。失效/缺失缓存会补齐。
+  max-inflight 默认 32（4～64），保留两个实时更新槽位，每世界最多八项活动任务。
+  不再使用 chunks-per-tick 限制；主线程每次调度准备工作最多使用约 4ms，单次快照不能中断。
+  /lod warm limit 64 可临时调整资源配额，不重启任务、不写配置文件；重启恢复配置值。
+  Voxy 编码仍为单线程；DH 的 4×4 chunk 模型按区段
   合并生成。缺少的相邻区块作为空白处理，不会因此生成新地形。
   区块卸载时抓取最新快照并异步刷新 Voxy，合并刷新对应 DH 模型；后台预热
   自己引发的临时加载/卸载不会递归触发新一轮工作。

@@ -694,11 +694,48 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         return result
     }
 
-    fun warm(world: World, x: Int, z: Int): CompletableFuture<Boolean> {
+    /** Prewarming reuses valid disk entries; unload refreshes deliberately replace old models. */
+    fun warm(
+        world: World,
+        x: Int,
+        z: Int,
+        reuseCached: Boolean = false,
+    ): CompletableFuture<Boolean> {
         val result = CompletableFuture<Boolean>()
-        if (!access.cacheAllowed(world.uid) || !world.isChunkGenerated(x, z)) {
+        if (!access.cacheAllowed(world.uid)) {
             result.complete(false)
             return result
+        }
+        if (!reuseCached) {
+            loadWarm(world, x, z, result)
+            return result
+        }
+        val key = ColumnCache.Key(world.uid, x, z)
+        val revision = revision(key)
+        try {
+            workers.execute {
+                try {
+                    val hit = cache.get(key)
+                    main {
+                        if (!access.cacheAllowed(key.world) || revision != revision(key))
+                            result.complete(false)
+                        else if (hit != null) result.complete(true)
+                        else loadWarm(world, x, z, result)
+                    }
+                } catch (error: Exception) {
+                    result.completeExceptionally(error)
+                }
+            }
+        } catch (error: RejectedExecutionException) {
+            result.completeExceptionally(error)
+        }
+        return result
+    }
+
+    private fun loadWarm(world: World, x: Int, z: Int, result: CompletableFuture<Boolean>) {
+        if (!access.cacheAllowed(world.uid) || !world.isChunkGenerated(x, z)) {
+            result.complete(false)
+            return
         }
         if (!world.isChunkLoaded(x, z)) BackgroundChunks.loaded(world.uid, x, z)
         world.getChunkAtAsync(x, z, false).whenComplete { chunk, error ->
@@ -719,7 +756,6 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                 }
             }
         }
-        return result
     }
 
     fun uploads(): UploadService = checkNotNull(uploads)

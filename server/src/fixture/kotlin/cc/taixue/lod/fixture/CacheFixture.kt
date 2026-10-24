@@ -181,6 +181,16 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
         config(-1, emptyMap())
         populate(first)
         populate(second)
+        // Repeated initialization must reuse the persisted column without loading its world chunk.
+        val key = ColumnCache.Key(first.uid, 4, 4)
+        val original = lod.voxyService.cache().version(key)
+        main { first.unloadChunk(4, 4, true) }
+        main { lod.voxyService.warm(first, 4, 4, reuseCached = true) }.get(30, TimeUnit.SECONDS)
+        check(
+            lod.voxyService.cache().version(key) == original,
+            "prewarm cache hit is never rewritten",
+        )
+        check(!main { first.isChunkLoaded(4, 4) }, "prewarm cache hit never loads the chunk")
         check(
             entries(first.uid).any { it.id.startsWith("dh:") } &&
                 entries(first.uid).any { it.id.startsWith("voxy:") },
@@ -249,6 +259,25 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
             "by-world prewarm overrides global disabled and protocol selection",
         )
         check(generated.get() == 0, "prewarm creates no new terrain chunks")
+        val beforeRestart =
+            lod.voxyService.cache().catalog().filter { it.first.world == first.uid }.toMap()
+        val dhBeforeRestart =
+            entries(first.uid)
+                .filter { it.id.startsWith("dh:") }
+                .associate { it.id to it.timestamp }
+        main {
+            lod.warmService.stop(first.uid)
+            lod.warmService.start(first)
+        }
+        eventually { main { lod.warmService.finished(first.uid) } }
+        check(
+            lod.voxyService.cache().catalog().filter { it.first.world == first.uid }.toMap() ==
+                beforeRestart &&
+                entries(first.uid)
+                    .filter { it.id.startsWith("dh:") }
+                    .associate { it.id to it.timestamp } == dhBeforeRestart,
+            "restarted prewarm reuses existing Voxy and DH models without rewriting",
+        )
         val inherited = main {
             lod.config.set("prewarm.by_world.cache-b.enabled", null)
             lod.config.set("prewarm.global.enabled", true)

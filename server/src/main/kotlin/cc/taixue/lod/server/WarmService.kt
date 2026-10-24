@@ -36,11 +36,17 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private data class Key(val world: UUID, val x: Int, val z: Int)
 
+    private data class Work(val chunk: SavedChunks.Chunk, val voxy: Boolean, val dh: Boolean)
+
     private class Job(val world: World, val protocols: Set<String>, val region: Path) {
         val coverage = CacheCoverage()
         @Volatile var cancelled = false
         var scan: SavedChunks? = null
-        var pending = false
+        var scanning = false
+        var exhausted = false
+        var pending = 0
+        var reused = 0L
+        val ready = ArrayDeque<Work>()
         var finished = false
         var done = 0L
         var errors = 0L
@@ -192,15 +198,14 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private fun tick() {
         if (closed) return
-        var budget = plugin.config.getInt("prewarm.global.chunks-per-tick", 1).coerceIn(1, 8)
-        while (budget > 0 && active < 2 && unloads.isNotEmpty()) {
+        val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 64)
+        while (active < capacity && unloads.isNotEmpty()) {
             val iterator = unloads.iterator()
             val (key, snapshot) = iterator.next()
             iterator.remove()
             val world = Bukkit.getWorld(key.world) ?: continue
             if (!plugin.worldAccess.cacheAllowed(key.world)) continue
             active++
-            budget--
             val future =
                 if (snapshot == null) plugin.voxyService.warm(world, key.x, key.z)
                 else plugin.voxyService.refreshSnapshot(world, snapshot)
@@ -214,13 +219,12 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                 }
             }
         }
-        if (budget > 0 && active < 2 && unloadDh.isNotEmpty()) {
+        if (active < capacity && unloadDh.isNotEmpty()) {
             val iterator = unloadDh.iterator()
             val key = iterator.next()
             iterator.remove()
             if (plugin.worldAccess.cacheAllowed(key.world)) {
                 active++
-                budget--
                 plugin.dhSupport.refreshLod(key.world, key.x, key.z).whenComplete { _, error ->
                     main {
                         active--
@@ -231,75 +235,131 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         }
         val order = jobs.values.toMutableList()
         if (order.isNotEmpty()) Collections.rotate(order, -(rotation++ % order.size))
+        // Bound snapshots/chunk loads, rather than leaving the encoder idle behind a tick quota.
+        // Two slots remain available to real-time refreshes even with a full initialization queue.
+        val deadline = System.nanoTime() + 4_000_000
         for (job in order) {
-            if (active >= 2 || budget <= 0) break
-            if (job.pending || job.finished) continue
+            if (job.finished || job.cancelled) continue
             if (!plugin.worldAccess.cacheAllowed(job.world.uid)) {
+                job.cancelled = true
+                job.ready.clear()
                 job.finished = true
                 continue
             }
-            job.pending = true
-            active++
-            budget--
-            reader.execute {
-                try {
-                    val scan = job.scan ?: SavedChunks(job.region).also { job.scan = it }
+            if (!job.scanning && !job.exhausted && job.ready.size < 32) scan(job)
+        }
+        var dispatched: Boolean
+        do {
+            dispatched = false
+            for (job in order) {
+                if (active >= capacity - 2 || System.nanoTime() >= deadline) return
+                if (job.cancelled || job.pending >= 8 || job.ready.isEmpty()) continue
+                dispatch(job, job.ready.removeFirst())
+                dispatched = true
+            }
+        } while (dispatched)
+    }
+
+    private fun scan(job: Job) {
+        job.scanning = true
+        val worldId = job.world.uid
+        reader.execute {
+            try {
+                val scan = job.scan ?: SavedChunks(job.region).also { job.scan = it }
+                val batch = mutableListOf<Work>()
+                var reused = 0L
+                var exhausted = false
+                var visited = 0
+                while (!closed && !job.cancelled && batch.size < 32 && visited++ < 1024) {
                     val next = scan.next()
-                    main { dispatch(job, next) }
-                } catch (error: Exception) {
-                    main {
-                        job.pending = false
-                        job.finished = true
-                        job.errors++
-                        active--
-                        plugin.logger.warning("Prewarm scan ${job.world.name}: $error")
+                    if (next == null) {
+                        exhausted = true
+                        break
                     }
+                    val voxy =
+                        "voxy" in job.protocols &&
+                            plugin.voxyService
+                                .cache()
+                                .get(ColumnCache.Key(worldId, next.x, next.z)) == null
+                    if (job.regionX != next.regionX || job.regionZ != next.regionZ) {
+                        job.sections.clear()
+                        job.regionX = next.regionX
+                        job.regionZ = next.regionZ
+                    }
+                    val x = Math.floorDiv(next.x, 4)
+                    val z = Math.floorDiv(next.z, 4)
+                    val dh =
+                        "dh" in job.protocols &&
+                            job.sections.add(Wire.pack(x, z)) &&
+                            !plugin.dhSupport.lodRepository.lodExistsAsync(worldId, x, z).join()
+                    if (voxy || dh) batch += Work(next, voxy, dh) else reused++
+                }
+                main {
+                    job.scanning = false
+                    if (jobs[worldId] !== job || job.cancelled) return@main
+                    job.reused += reused
+                    job.ready.addAll(batch)
+                    job.exhausted = exhausted
+                    finish(job)
+                }
+            } catch (error: Exception) {
+                main {
+                    job.scanning = false
+                    job.exhausted = true
+                    job.errors++
+                    plugin.logger.warning("Prewarm scan ${job.world.name}: $error")
+                    finish(job)
                 }
             }
         }
     }
 
-    private fun dispatch(job: Job, next: SavedChunks.Chunk?) {
-        if (jobs[job.world.uid] !== job || !plugin.worldAccess.cacheAllowed(job.world.uid)) {
-            active--
-            job.pending = false
-            job.finished = true
-            return
-        }
-        if (next == null) {
-            active--
-            job.pending = false
+    private fun finish(job: Job) {
+        if (
+            !job.finished &&
+                job.exhausted &&
+                !job.scanning &&
+                job.pending == 0 &&
+                job.ready.isEmpty()
+        ) {
             job.finished = true
             plugin.logger.info(
-                "Prewarm complete ${job.world.name}: chunks=${job.done}, failures=${job.errors}"
+                "Prewarm complete ${job.world.name}: chunks=${job.done}, reused=${job.reused}, failures=${job.errors}"
             )
+        }
+    }
+
+    private fun dispatch(job: Job, work: Work) {
+        val next = work.chunk
+        if (
+            !plugin.worldAccess.cacheAllowed(job.world.uid) ||
+                !job.world.isChunkGenerated(next.x, next.z)
+        ) {
+            finish(job)
             return
         }
-        if (!job.world.isChunkGenerated(next.x, next.z)) {
-            active--
-            job.pending = false
-            return
-        }
+        active++
+        job.pending++
         val tasks = mutableListOf<CompletableFuture<*>>()
-        if ("voxy" in job.protocols) tasks += plugin.voxyService.warm(job.world, next.x, next.z)
-        if (job.regionX != next.regionX || job.regionZ != next.regionZ) {
-            job.sections.clear()
-            job.regionX = next.regionX
-            job.regionZ = next.regionZ
+        if (work.voxy)
+            tasks += plugin.voxyService.warm(job.world, next.x, next.z, reuseCached = true)
+        if (work.dh) {
+            val position = no.jckf.dhsupport.core.dataobject.SectionPosition()
+            position.detailLevel = 6
+            position.x = Math.floorDiv(next.x, 4)
+            position.z = Math.floorDiv(next.z, 4)
+            tasks += plugin.dhSupport.getLod(job.world.uid, position)
         }
-        val x = Math.floorDiv(next.x, 4)
-        val z = Math.floorDiv(next.z, 4)
-        if ("dh" in job.protocols && job.sections.add(Wire.pack(x, z)))
-            tasks += plugin.dhSupport.refreshLod(job.world.uid, x, z)
         CompletableFuture.allOf(*tasks.toTypedArray()).whenComplete { _, error ->
             main {
                 active--
-                job.pending = false
+                job.pending--
                 job.done++
                 if (error != null) {
                     job.errors++
                     plugin.logger.warning("Prewarm ${job.world.name}: $error")
                 }
+                finish(job)
             }
         }
     }
@@ -323,19 +383,32 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     fun command(sender: CommandSender, args: Array<String>): Boolean {
         val action = args.firstOrNull() ?: "status"
         val target = args.getOrNull(1) ?: "all"
+        if (action == "limit") {
+            val limit = args.getOrNull(1)?.toIntOrNull()
+            if (limit == null || limit !in 4..64) {
+                sender.sendMessage("/lod warm limit <4..64>")
+            } else {
+                // Session-only tuning: avoid rewriting administrator policy or restarting jobs.
+                plugin.config.set("prewarm.global.max-inflight", limit)
+                sender.sendMessage(
+                    "Prewarm in-flight limit: $limit (temporary; restart restores config)"
+                )
+            }
+            return true
+        }
         if (action == "status") {
             sender.sendMessage(
                 "prewarm active=$active, unload queue=${unloads.size}/${unloadDh.size}, refreshed=$completed, failed=$failed"
             )
             jobs.values.forEach {
                 sender.sendMessage(
-                    "${it.world.name}: ${if (it.finished) "finished" else "running"}, chunks=${it.done}, failures=${it.errors}"
+                    "${it.world.name}: ${if (it.finished) "finished" else "running"}, chunks=${it.done}, failures=${it.errors}, reused=${it.reused}, queued=${it.ready.size}, inflight=${it.pending}"
                 )
             }
             return true
         }
         if (action !in setOf("start", "stop")) {
-            sender.sendMessage("/lods warm start|stop|status [world|all]")
+            sender.sendMessage("/lods warm start|stop|status [world|all]; /lod warm limit <4..64>")
             return true
         }
         var changed = 0
