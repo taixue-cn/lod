@@ -31,9 +31,18 @@ import java.util.Map;
 
 public class FullBuilder extends LodBuilder
 {
+    private final boolean useRuns;
+
     public FullBuilder(WorldInterface worldInterface, SectionPosition position)
     {
+        this(worldInterface, position, true);
+    }
+
+    // Keep the original stepping path available for semantic and timing comparisons.
+    public FullBuilder(WorldInterface worldInterface, SectionPosition position, boolean useRuns)
+    {
         super(worldInterface, position);
+        this.useRuns = useRuns;
     }
 
     public Lod generate()
@@ -163,6 +172,11 @@ public class FullBuilder extends LodBuilder
                     DataPoint point;
 
                     if (previous != null && previous.getMappingId() == id) {
+                        // Only merge already-matching mappings; entry lighting/underglow stays unchanged.
+                        if (this.useRuns && yStep == 1 && !sampleBiomes3d && previous.getHeight() >= 4) {
+                            thisStep = this.worldInterface.getIdenticalRunLength(worldX, highWorldY, worldZ, minY);
+                            relativeY -= thisStep - 1;
+                        }
                         point = previous;
 
                         point.setStartY(point.getStartY() - thisStep);

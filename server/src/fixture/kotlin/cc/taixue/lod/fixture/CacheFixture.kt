@@ -186,8 +186,19 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
                     .getBlockAt(64 + (index and 15), index / 256, 64 + ((index shr 4) and 15))
                     .setType(material, false)
             }
+            for (y in 16..31) first.getBlockAt(66, y, 66).setType(Material.STONE, false)
+            for (y in 20..22) first.getBlockAt(67, y, 67).setType(Material.BEACON, false)
             first.getChunkAt(4, 4).getChunkSnapshot(true, true, false)
         }
+        val thick = main {
+            for (x in 64..79) for (z in 64..79) for (y in first.minHeight + 16..128) first
+                .getBlockAt(x, y, z)
+                .setType(Material.STONE, false)
+            first.getBlockAt(64, 64, 64).setType(Material.GOLD_BLOCK, false)
+            first.getChunkAt(4, 4).getChunkSnapshot(true, true, false)
+        }
+        DhRunFixture.verify(listOf(uniform, mixed, thick), first.minHeight, first.maxHeight)
+        check(true, "DH runs preserve complete model bytes, beacons, 3D biomes and underglow")
         EncoderFixture.verify(listOf(uniform, mixed), first.minHeight, first.maxHeight)
         check(
             true,

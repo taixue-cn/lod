@@ -43,6 +43,28 @@ internal class PaletteSnapshotEncoder(snapshotType: Class<*>) {
     )
 
     private val states = ConcurrentHashMap<Any, State>()
+    // Snapshots own immutable palettes; weak keys release section metadata with their snapshots.
+    private val uniformSections =
+        java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, Any>())
+    private val mixedSection = Any()
+
+    private fun uniform(container: Any): Any =
+        uniformSections[container]
+            ?: run {
+                val data = dataField.get(container)
+                val storage = storageMethod.invoke(data)
+                val palette = paletteMethod.invoke(data)
+                val value =
+                    if (bitsMethod.invoke(storage) == 0) valueMethod.invoke(palette, 0)
+                    else {
+                        val indices = IntArray(4096).also { unpackMethod.invoke(storage, it) }
+                        if (indices.all { it == indices[0] })
+                            valueMethod.invoke(palette, indices[0])
+                        else mixedSection
+                    }
+                uniformSections[container] = value
+                value
+            }
 
     private fun state(value: Any): State =
         states.computeIfAbsent(value) {
@@ -78,6 +100,41 @@ internal class PaletteSnapshotEncoder(snapshotType: Class<*>) {
         return state(getBlockMethod.invoke(containers[section], index))
     }
 
+    /** Counts an identical vertical state run; uniform sections skip sixteen lookups at once. */
+    fun runLength(snapshot: ChunkSnapshot, x: Int, y: Int, z: Int, lowerY: Int): Int {
+        val containers = blocks.get(snapshot) as Array<*>
+        val baseY = minimum.getInt(snapshot)
+        val expected =
+            getBlockMethod.invoke(
+                containers[(y - baseY) shr 4],
+                ((y and 15) shl 8) or (z shl 4) or x,
+            )
+        // Each beacon has an observable entry in DH's beacon list.
+        if (state(expected).identity.startsWith("minecraft:beacon")) return 1
+        var cursor = y
+        var count = 0
+        while (cursor >= lowerY) {
+            val section = (cursor - baseY) shr 4
+            val container = checkNotNull(containers[section])
+            val uniform = uniform(container)
+            if (uniform !== mixedSection) {
+                if (uniform !== expected) break
+                val length = cursor - maxOf(lowerY, baseY + section * 16) + 1
+                count += length
+                cursor -= length
+            } else {
+                val bottom = maxOf(lowerY, baseY + section * 16)
+                while (cursor >= bottom) {
+                    val index = ((cursor and 15) shl 8) or (z shl 4) or x
+                    if (getBlockMethod.invoke(container, index) !== expected) return maxOf(1, count)
+                    count++
+                    cursor--
+                }
+            }
+        }
+        return maxOf(1, count)
+    }
+
     fun encode(snapshot: ChunkSnapshot, minY: Int, maxY: Int): ByteArray {
         val containers = blocks.get(snapshot) as Array<*>
         // NMS 26.3 getMaxY is inclusive; Bukkit maxHeight remains exclusive.
@@ -94,12 +151,15 @@ internal class PaletteSnapshotEncoder(snapshotType: Class<*>) {
             val bits = bitsMethod.invoke(storage) as Int
             val size = sizeMethod.invoke(palette) as Int
             // Global palettes may expose the whole registry; translate only used states below.
-            val indices =
+            val unpacked =
                 if (bits == 0) intArrayOf(0)
                 else IntArray(4096).also { unpackMethod.invoke(storage, it) }
+            val single = bits == 0 || unpacked.all { it == unpacked[0] }
+            val indices = if (single) intArrayOf(unpacked[0]) else unpacked
             val remap = IntArray(size) { -1 }
             val descriptions = arrayOfNulls<State>(size)
             var count = 0
+            var used = 0
             var fluids = 0
             for (index in indices.indices) {
                 val id = indices[index]
@@ -107,21 +167,18 @@ internal class PaletteSnapshotEncoder(snapshotType: Class<*>) {
                     descriptions[id]
                         ?: state(valueMethod.invoke(palette, id)).also {
                             descriptions[id] = it
+                            used++
                             remap[id] = dictionary.getOrPut(it.identity) { dictionary.size }
                         }
-                val weight = if (bits == 0) 4096 else 1
+                val weight = if (single) 4096 else 1
                 if (!state.air) count += weight
                 if (state.fluid) fluids += weight
             }
             val blockContainer =
-                if (bits == 0) {
-                    WireSectionCursor.WireContainer(0, intArrayOf(remap[0]), longArrayOf())
-                } else if (size <= 256) {
+                if (single) {
+                    WireSectionCursor.WireContainer(0, intArrayOf(remap[indices[0]]), longArrayOf())
+                } else if (size <= 256 && used == size) {
                     // Wire v20 and Paper both pack floor(64/bits) entries into each long.
-                    for (id in remap.indices) if (remap[id] < 0) {
-                        val state = state(valueMethod.invoke(palette, id))
-                        remap[id] = dictionary.getOrPut(state.identity) { dictionary.size }
-                    }
                     WireSectionCursor.WireContainer(
                         bits,
                         remap,

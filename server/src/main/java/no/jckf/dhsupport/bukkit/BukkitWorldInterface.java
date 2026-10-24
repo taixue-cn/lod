@@ -671,6 +671,13 @@ public class BukkitWorldInterface implements WorldInterface
     }
 
     @Override
+    public int getIdenticalRunLength(int x, int y, int z, int minY)
+    {
+        if (this.isDummyMode()) return 1;
+        return cc.taixue.lod.server.SnapshotStates.runLength(this.getChunk(x, z), Coordinates.blockToChunkRelative(x), y, Coordinates.blockToChunkRelative(z), minY);
+    }
+
+    @Override
     public String getBlockStateAsStringAt(int x, int y, int z)
     {
         MaterialRecord materialRecord = this.getMaterialRecordAt(x, y, z);

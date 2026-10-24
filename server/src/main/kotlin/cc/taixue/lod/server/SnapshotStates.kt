@@ -8,6 +8,10 @@ import org.bukkit.ChunkSnapshot
  */
 object SnapshotStates {
     @JvmStatic
+    fun runLength(snapshot: ChunkSnapshot, x: Int, y: Int, z: Int, lowerY: Int): Int =
+        ColumnEncoder.palette(snapshot)?.runLength(snapshot, x, y, z, lowerY) ?: 1
+
+    @JvmStatic
     fun identity(snapshot: ChunkSnapshot, x: Int, y: Int, z: Int): String? =
         ColumnEncoder.palette(snapshot)?.stateAt(snapshot, x, y, z)?.identity
 

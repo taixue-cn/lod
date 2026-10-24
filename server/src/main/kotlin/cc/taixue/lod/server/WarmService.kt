@@ -206,7 +206,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private fun tick() {
         if (closed) return
-        val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 64)
+        val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 256)
         while (active < capacity && unloads.isNotEmpty()) {
             val iterator = unloads.iterator()
             val (key, snapshot) = iterator.next()
@@ -259,12 +259,13 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             }
             if (!job.scanning && !job.exhausted && job.ready.size < 32) scan(job)
         }
+        val perWorld = plugin.config.getInt("prewarm.global.world-max-inflight", 8).coerceIn(1, 32)
         var dispatched: Boolean
         do {
             dispatched = false
             for (job in order) {
                 if (active >= capacity - 2 || System.nanoTime() >= deadline) return
-                if (job.cancelled || job.pending >= 8 || job.ready.isEmpty()) continue
+                if (job.cancelled || job.pending >= perWorld || job.ready.isEmpty()) continue
                 dispatch(job, job.ready.removeFirst())
                 dispatched = true
             }
@@ -439,8 +440,8 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         }
         if (action == "limit") {
             val limit = args.getOrNull(1)?.toIntOrNull()
-            if (limit == null || limit !in 4..64) {
-                sender.sendMessage("/lod warm limit <4..64>")
+            if (limit == null || limit !in 4..256) {
+                sender.sendMessage("/lod warm limit <4..256>")
             } else {
                 // Session-only tuning: avoid rewriting administrator policy or restarting jobs.
                 plugin.config.set("prewarm.global.max-inflight", limit)
@@ -462,7 +463,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             return true
         }
         if (action !in setOf("start", "stop")) {
-            sender.sendMessage("/lods warm start|stop|status [world|all]; /lod warm limit <4..64>")
+            sender.sendMessage("/lods warm start|stop|status [world|all]; /lod warm limit <4..256>")
             return true
         }
         var changed = 0

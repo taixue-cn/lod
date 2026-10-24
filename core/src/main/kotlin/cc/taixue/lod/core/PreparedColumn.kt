@@ -43,7 +43,12 @@ object PreparedColumn {
         output.varInt(source.sections().size)
         for (section in source.sections()) {
             val singleBlock =
-                if (section.blocks().palette().all { airIds[it] }) 0
+                // Server-owned counts also cover old palettes retaining unused non-air entries.
+                if (
+                    section.nonEmptyBlockCount() == 0 ||
+                        section.blocks().palette().all { airIds[it] }
+                )
+                    0
                 else if (section.blocks().bits() == 0) section.blocks().palette()[0] + 1 else null
             val singleBiome =
                 if (singleBlock == 0) 0

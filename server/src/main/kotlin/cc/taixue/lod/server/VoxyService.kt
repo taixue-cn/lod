@@ -57,7 +57,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
             1,
             30,
             TimeUnit.SECONDS,
-            ArrayBlockingQueue(128),
+            ArrayBlockingQueue(256),
             { task -> Thread(task, "ArchLOD-Voxy").apply { isDaemon = true } },
             ThreadPoolExecutor.AbortPolicy(),
         )

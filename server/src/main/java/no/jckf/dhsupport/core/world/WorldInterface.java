@@ -29,6 +29,10 @@ public interface WorldInterface extends Configurable
 {
     WorldInterface newInstance();
 
+    // Optional immutable-snapshot acceleration; unsupported platforms retain unit steps.
+    default int getIdenticalRunLength(int x, int y, int z, int minY) { return 1; }
+
+
     UUID getId();
 
     String getName();
