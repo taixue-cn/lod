@@ -1,5 +1,7 @@
 # LOD project conventions
 
+- Deployment restart policy: check the current online player list first. Unless the only online player is `Chuanwise`, announce the restart in-game and wait for players to prepare before restarting. Never restart immediately after announcing. See `/home/taixue/data/services/minecraft/AGENTS.md` for server operations rules.
+
 - Use Kotlin for all first-party production code, unit tests, integration fixtures, and Gradle build scripts.
 - Follow Kotlin Official Style. Keep `kotlin.code.style=official`; run `./gradlew formatKotlin` to format and `./gradlew checkKotlinFormat` to verify. Formatting uses ktfmt's `--kotlinlang-style` (four-space indentation).
 - Use Java only for a documented technical constraint, such as a Mixin target that requires it. Record the concrete constraint next to the code; convenience or an existing Java caller is not a constraint.
