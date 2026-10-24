@@ -95,7 +95,8 @@ class NativeClientFixture : ClientModInitializer {
                                 acceptedColumn()
                         ) {
                             val entry = entries().single()
-                            for (name in listOf("receivedColumns", "queuedColumns")) {
+                            for (name in
+                                listOf("receivedColumns", "queuedColumns", "batchFrames")) {
                                 val field =
                                     entry.javaClass.getDeclaredField(name).apply {
                                         isAccessible = true

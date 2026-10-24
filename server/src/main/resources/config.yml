@@ -257,7 +257,9 @@ lod:
     entries: []
   # Horizontal download radius in chunks (8..1024), independent of vanilla view distance.
   radius-chunks: 1000
+  # World loads/encodes retain their conservative budget; cache hits use a separate batch budget.
   columns-per-tick: 2
+  cached-columns-per-tick: 16
   max-queued-per-player: 256
   cache-mib: 4096
   cache-max-age-seconds: -1

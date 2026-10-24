@@ -1,5 +1,7 @@
 package cc.taixue.lod.fixture
 
+import cc.taixue.lod.core.ColumnCache
+import cc.taixue.lod.server.ColumnEncoder
 import cc.taixue.lod.server.LodServer
 import java.nio.file.Files
 import java.nio.file.Path
@@ -53,6 +55,20 @@ class Fixture : JavaPlugin(), Listener {
             when (args[0]) {
                 "radius-small" -> lod().config.set("lod.radius-chunks", 64)
                 "radius-large" -> lod().config.set("lod.radius-chunks", 1024)
+                "batchseed" -> {
+                    val cache = lod().voxyService.cache()
+                    val body =
+                        ColumnEncoder.encode(
+                            publicWorld.getChunkAt(4, 4).getChunkSnapshot(true, true, false),
+                            publicWorld.minHeight,
+                            publicWorld.maxHeight,
+                        )
+                    for (x in 16 until 24) for (z in 16 until 24) cache.put(
+                        ColumnCache.Key(publicWorld.uid, x, z),
+                        ColumnCache.Entry(123456789L, body),
+                    )
+                    Files.writeString(Path.of("batch-seeded.json"), "{\"count\":64}")
+                }
                 "cachetest" -> CacheFixture(this, lod()).start()
                 "revoke" ->
                     attachment.setPermission("multiverse.access.${sender.world.name}", false)

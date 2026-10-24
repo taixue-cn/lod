@@ -13,7 +13,17 @@ function reader(b){let p=0;return {vi(){let n=0,s=0,x;do{x=b[p++];n|=(x&127)<<s;
 async function connect(name,version='1.21.11') {
  const client=mc.createClient({host:'127.0.0.1',port,username:name,auth:'offline',version,hideErrors:true});clients.push(client);
  const peer={client,packets:[],errors:[]};client.on('error',e=>peer.errors.push(String(e)));client.on('kick_disconnect',p=>peer.errors.push(JSON.stringify(p)));
- client.on('packet',(p,m)=>{if(m.name==='custom_payload')peer.packets.push({channel:p.channel,data:p.data,time:Date.now()});});
+ client.on('packet',(p,m)=>{if(m.name!=='custom_payload')return;
+   peer.packets.push({channel:p.channel,data:p.data,time:Date.now()});
+   // Adapt the negotiated extension for the existing permission/protocol assertions below.
+   if(p.channel==='taixue:lod_batch'){
+     const r=reader(p.data);assert.equal(r.vi(),1);const dim=r.str(),count=r.vi();
+     for(let j=0;j<count;j++){const type=r.byte(),position=r.long();
+       if(type===0){const stamp=r.long(),body=r.raw(r.vi());peer.packets.push({channel:'lss:voxel_column',data:Buffer.concat([i(Number(position>>32n)),i(Number(BigInt.asIntN(32,position))),str(dim),long(stamp),Buffer.from([3,0]),vi(body.length),body]),time:Date.now()});}
+       else peer.packets.push({channel:'lss:batch_response',data:Buffer.concat([vi(1),Buffer.from([type]),long(position)]),time:Date.now()});
+     }
+   }
+ });
  client.on('position',p=>{if(p.teleportId!==undefined)client.write('teleport_confirm',{teleportId:p.teleportId});});
  await new Promise((resolve,reject)=>{client.once('login',resolve);client.once('error',reject);setTimeout(()=>reject(Error('login timeout '+name)),15000);});
  await sleep(1200);return peer;
@@ -21,7 +31,8 @@ async function connect(name,version='1.21.11') {
 function send(p,channel,data){p.client.write('custom_payload',{channel,data});}
 async function wait(p,predicate,from=0,timeout=20000){const deadline=Date.now()+timeout;while(Date.now()<deadline){const hit=p.packets.slice(from).find(predicate);if(hit)return hit;if(p.errors.length)throw Error(p.errors.join('\n'));await sleep(50);}throw Error('packet timeout; '+p.packets.slice(from).map(x=>x.channel+':'+x.data.length).join(','));}
 async function command(p,c){p.client.chat('/lodfixture '+c);await sleep(500);}
-function handshake(p){send(p,'lss:client_info',vi(4671));send(p,'lss:handshake_c2s',Buffer.concat([vi(20),vi(1)]));}
+const batchMode=process.env.LOD_BATCH_TEST==='1';
+function handshake(p){send(p,'lss:client_info',vi(4671));send(p,'lss:handshake_c2s',Buffer.concat([vi(20),vi(batchMode?65537:1)]));}
 function request(p,x=4,z=4){send(p,'lss:batch_chunk_req',Buffer.concat([vi(1),long(pos(x,z)),long(0)]));}
 function column(pkt){const r=reader(pkt.data),x=r.int(),z=r.int(),dim=r.str(),stamp=r.long(),source=r.byte(),codec=r.byte(),body=r.raw(r.vi());return{x,z,dim,stamp,source,codec,body};}
 function native(p,type,body,tracker){send(p,'distant_horizons:msg',Buffer.concat([short(16),short(type),...(tracker===undefined?[]:[i(tracker)]),body]));}
@@ -41,6 +52,17 @@ async function test(name,fn){await fn();results.push({name,status:'PASS'});conso
    await test('authorized existing terrain at 1000 chunks downloads without traveling',async()=>{const n=yes.packets.length;request(yes,1000,0);const c=column(await wait(yes,p=>p.channel==='lss:voxel_column',n));assert.equal(c.x,1000);assert.equal(c.z,0);assert(c.body.includes(Buffer.from('minecraft:gold_block')));});
    await test('requests outside the server radius cannot retrieve models',async()=>{const n=yes.packets.length;request(yes,1030,0);await quiet(yes,n);});
  }
+ if(batchMode)await test('cached models and unchanged acknowledgements are batched above the old 20-per-second ceiling',async()=>{
+   await command(yes,'batchseed');while(!fs.existsSync('batch-seeded.json'))await sleep(50);
+   const positions=[];for(let x=16;x<24;x++)for(let z=16;z<24;z++)positions.push(pos(x,z));
+   for(const unchanged of [false,true]){
+     const n=yes.packets.length,start=Date.now();send(yes,'lss:batch_chunk_req',Buffer.concat([vi(64),...positions.flatMap(p=>[long(p),long(unchanged?123456789:0)])]));
+     await wait(yes,()=>yes.packets.slice(n).filter(p=>p.channel===(unchanged?'lss:batch_response':'lss:voxel_column')).length>=64,n,10000);
+     const elapsed=Date.now()-start,frames=yes.packets.slice(n).filter(p=>p.channel==='taixue:lod_batch');
+     assert(elapsed<2500,'64 cache hits took '+elapsed+'ms');assert(frames.length<64,'no aggregation');
+     fs.writeFileSync('batch-'+(unchanged?'unchanged':'models')+'.json',JSON.stringify({count:64,frames:frames.length,elapsed_ms:elapsed}));
+   }
+ });
  await test('world permission denies both LSS and native DH requests',async()=>{handshake(no);dhConfig(no);let n=no.packets.length;request(no);dhRequest(no,'world',1);await quiet(no,n);});
  await test('native DH world spoofing does not return hidden models or metadata',async()=>{dhConfig(yes);let n=yes.packets.length;native(yes,3,ss('minecraft:lod-secret'));dhRequest(yes,'lod-secret',2);await quiet(yes,n);assert(!yes.packets.slice(n).some(p=>p.channel==='distant_horizons:msg'&&p.data.readInt16BE(2)===2));});
  await test('native DH receives world bounds in chunk units',async()=>{const n=yes.packets.length;dhConfig(yes);const p=await wait(yes,p=>p.channel==='distant_horizons:msg'&&p.data.readInt16BE(2)===4,n);const r=reader(p.data);r.raw(4);r.byte();r.int();assert.equal(r.int(),0);assert.equal(r.int(),0);const radius=r.int();assert(radius>1000000&&radius<2000000,'expected chunk radius, got '+radius);});
