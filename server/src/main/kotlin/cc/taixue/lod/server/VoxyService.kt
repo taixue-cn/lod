@@ -170,7 +170,10 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     private fun radius() =
         LodLimits.radius(plugin.config.getInt("lod.radius-chunks", LodLimits.DEFAULT_RADIUS_CHUNKS))
 
-    private fun revision(key: ColumnCache.Key): Long = revisions[key] ?: 0L
+    private data class Revision(val cache: Long, val column: Long)
+
+    private fun revision(key: ColumnCache.Key): Revision =
+        Revision(cache.generation(key.world), revisions[key] ?: 0L)
 
     private fun inRange(lease: SessionGate.Lease?, key: ColumnCache.Key) =
         access.inRange(lease, key.x.toLong(), key.z.toLong())
@@ -222,7 +225,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     private fun load(
         lease: SessionGate.Lease,
         key: ColumnCache.Key,
-        revision: Long,
+        revision: Revision,
         clientStamp: Long,
     ) {
         if (!inRange(lease, key) || revision != revision(key)) {
@@ -272,7 +275,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                                     workers.execute {
                                         try {
                                             if (access.cacheAllowed(key.world))
-                                                cache.put(key, entry)
+                                                cache.put(key, entry, revision.cache)
                                         } catch (error: IOException) {
                                             warn(error)
                                         }
@@ -298,7 +301,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     private fun deliver(
         lease: SessionGate.Lease,
         key: ColumnCache.Key,
-        revision: Long,
+        revision: Revision,
         stamp: Long,
         entry: ColumnCache.Entry,
     ) {
@@ -476,7 +479,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                                     workers.execute {
                                         try {
                                             if (access.cacheAllowed(key.world))
-                                                cache.put(key, entry)
+                                                cache.put(key, entry, revision.cache)
                                             main { result.accept(true) }
                                         } catch (error: IOException) {
                                             warn(error)
@@ -546,7 +549,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                             workers.execute {
                                 try {
                                     if (access.cacheAllowed(key.world)) {
-                                        cache.put(key, entry)
+                                        cache.put(key, entry, revision.cache)
                                         result.complete(true)
                                     } else result.complete(false)
                                 } catch (error: Exception) {

@@ -41,26 +41,32 @@ class ManagedWorlds(private val plugin: LodServer) : AutoCloseable {
 
     private val timer = Bukkit.getScheduler().runTaskTimer(plugin, Runnable(::sync), 1, 200)
 
-    fun allows(world: UUID): Boolean = !closed && policy.allows(world)
+    fun allows(world: UUID): Boolean =
+        !closed && policy.allows(world) && !plugin.cacheManager.blocked(world)
+
+    fun revision(world: UUID): Long = policy.entry(world)?.revision ?: 0L
 
     private fun sync() {
         if (closed || pending) return
-        val worlds = Bukkit.getWorlds()
+        val worlds = (Bukkit.getWorlds().map { it.uid } + plugin.cacheManager.knownWorlds()).toSet()
         // This bound protects both the worker and the management service; unreported worlds deny.
         if (worlds.size > 2048) {
             policy.clear()
             plugin.logger.warning("LOD management refuses more than 2048 loaded worlds")
             return
         }
-        val expected = worlds.map { it.uid }.toSet()
+        val expected = worlds
         val reports = JSONArray()
         worlds.forEach { world ->
-            val entry = policy.entry(world.uid)
-            if (!allows(world.uid)) plugin.warmService.stop(world.uid)
-            val status = plugin.warmService.status(world.uid)
+            val entry = policy.entry(world)
+            if (!allows(world)) plugin.warmService.stop(world)
+            val status =
+                if (entry?.enabled == false || plugin.cacheManager.blocked(world))
+                    plugin.cacheManager.deletionStatus(world)
+                else plugin.warmService.status(world)
             reports.put(
                 JSONObject()
-                    .put("world_uuid", world.uid.toString())
+                    .put("world_uuid", world.toString())
                     .put("revision", entry?.revision ?: 0)
                     .put("state", status.state)
                     .put("completed_chunks", status.completedChunks)
@@ -108,9 +114,16 @@ class ManagedWorlds(private val plugin: LodServer) : AutoCloseable {
                         ManagedWorldPolicy.Entry(
                             value.getLong("revision"),
                             value.getBoolean("enabled"),
+                            value.optLong("purge_revision", 0L),
                         )
                 }
-                check(entries.values.all { it.revision >= 0 && (!it.enabled || it.revision > 0) })
+                check(
+                    entries.values.all {
+                        it.revision >= 0 &&
+                            it.purgeRevision in 0..it.revision &&
+                            (!it.enabled || it.revision > 0)
+                    }
+                )
                 main {
                     val previous = expected.associateWith(::allows)
                     val revisions = expected.associateWith { policy.entry(it)?.revision }
@@ -122,7 +135,7 @@ class ManagedWorlds(private val plugin: LodServer) : AutoCloseable {
                         connected = true
                     }
                     expected.forEach { uuid ->
-                        val world = Bukkit.getWorld(uuid) ?: return@forEach
+                        val world = Bukkit.getWorld(uuid)
                         if (
                             revisions[uuid] != entries[uuid]?.revision &&
                                 (previous[uuid] == true || entries[uuid]?.enabled == true)
@@ -131,9 +144,22 @@ class ManagedWorlds(private val plugin: LodServer) : AutoCloseable {
                                 "LOD policy applied world=$uuid enabled=${allows(uuid)} revision=${entries[uuid]?.revision}"
                             )
                         }
-                        if (!allows(uuid)) plugin.warmService.stop(uuid)
-                        else if (
-                            previous[uuid] != true || revisions[uuid] != entries[uuid]?.revision
+                        val entry = entries[uuid] ?: return@forEach
+                        if (!entry.enabled) {
+                            plugin.warmService.stop(uuid)
+                            // Unknown/unbound revisions deny access but never authorize
+                            // destruction.
+                            if (entry.revision > 0)
+                                plugin.cacheManager.disableWorld(
+                                    uuid,
+                                    maxOf(entry.purgeRevision, entry.revision),
+                                )
+                        } else if (
+                            plugin.cacheManager.enableWorld(uuid, entry.purgeRevision) &&
+                                world != null &&
+                                (previous[uuid] != true ||
+                                    revisions[uuid] != entry.revision ||
+                                    plugin.warmService.status(uuid).state == "OFF")
                         ) {
                             plugin.warmService.stop(uuid)
                             plugin.warmService.start(world, setOf("voxy", "dh"))

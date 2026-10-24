@@ -64,6 +64,10 @@ class WorldAccess(private val plugin: LodServer) : Listener {
         return knownWorlds[world]?.let { policy.allows(*it) } ?: false
     }
 
+    /** Management revisions are stable for unmanaged installations. */
+    fun cacheRevision(world: UUID): Long =
+        if (managed) plugin.managedWorlds?.revision(world) ?: 0L else 0L
+
     private fun know(world: World) {
         knownWorlds[world.uid] = arrayOf(world.name, world.key.toString(), world.uid.toString())
     }

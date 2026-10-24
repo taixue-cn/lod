@@ -25,6 +25,9 @@ object DhGuard {
 
     @JvmStatic fun cacheAllowed(world: UUID): Boolean = access?.cacheAllowed(world) == true
 
+    /** Fences builders across a managed world disable/re-enable. */
+    @JvmStatic fun cacheRevision(world: UUID): Long = access?.cacheRevision(world) ?: 0L
+
     @JvmStatic
     fun inRange(lease: SessionGate.Lease?, x: Long, z: Long): Boolean =
         access?.inRange(lease, x, z) == true
