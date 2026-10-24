@@ -295,6 +295,7 @@ prewarm:
     # Bounded initialization pipeline; two slots are reserved for real-time refreshes.
     # The obsolete chunks-per-tick setting is no longer used.
     max-inflight: 32
+    main-thread-millis: 4
   by_world: {}
   # Example: main-city: {enabled: true, protocols: [voxy, dh]}
 

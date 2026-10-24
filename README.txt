@@ -154,9 +154,12 @@ LodServer 0.2.0 — ARCH 共享远景缓存
   /lods warm start all 或 /lods warm start main-city 手动扫描并补齐缺失模型。
   /lods warm status 查看每个世界进度；/lods warm stop all 停止后续工作。
   手动 start 可启动尚未设为自动预热的世界，仍使用该世界的协议选择。
-  初始化跳过有效的 Voxy/DH 缓存，重启后不再逐块重编码。失效/缺失缓存会补齐。
+  初始化先探测 Voxy/DH 缓存，已有模型的槽位不再解压原始地形或完整模型；读取模型时仍校验完整载荷。
+  重启后不再逐块重编码，失效/缺失缓存会补齐。
   max-inflight 默认 32（4～64），保留两个实时更新槽位，每世界最多八项活动任务。
-  不再使用 chunks-per-tick 限制；主线程每次调度准备工作最多使用约 4ms，单次快照不能中断。
+  不再使用 chunks-per-tick 限制；main-thread-millis 默认 4（1～25）控制每 tick 的调度时间预算，单次快照不能中断。
+  /lod warm budget 12 可临时调整该预算。已从磁盘确认 FULL 的任务复用校验结果，不在主线程重复读取区块状态。
+  LZ4 等尚未确认 FULL 的格式仍交给 Paper 检查，getChunkAtAsync 始终使用 gen=false。
   /lod warm limit 64 可临时调整资源配额，不重启任务、不写配置文件；重启恢复配置值。
   Voxy 编码仍为单线程；支持的 Paper 快照直接读取区段调色板和打包光照，
   每种方块状态仅转换一次；DH 也复用状态标识和属性。其他快照实现回退 Bukkit API。

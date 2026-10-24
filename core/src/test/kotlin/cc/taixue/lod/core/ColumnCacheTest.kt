@@ -6,7 +6,9 @@ import java.nio.file.attribute.FileTime
 import java.time.Duration
 import java.util.UUID
 import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -38,6 +40,23 @@ class ColumnCacheTest {
         cache.put(key, ColumnCache.Entry(1, byteArrayOf(7)))
         Files.write(directory.resolve(key.world.toString()).resolve("0_0.gz"), byteArrayOf(1))
         assertNull(cache.get(key))
+    }
+
+    @Test
+    fun headerProbeSurvivesRestartAndHonorsExpiryAndInvalidation() {
+        val key = ColumnCache.Key(UUID.randomUUID(), 2, 3)
+        val cache = ColumnCache(directory, Duration.ofSeconds(-1), -1)
+        assertFalse(cache.contains(key))
+        cache.put(key, ColumnCache.Entry(11, ByteArray(100000)))
+        assertTrue(ColumnCache(directory, Duration.ofSeconds(-1), -1).contains(key))
+        val file = directory.resolve(key.world.toString()).resolve("2_3.gz")
+        Files.setLastModifiedTime(file, FileTime.fromMillis(1))
+        assertTrue(cache.contains(key))
+        assertFalse(ColumnCache(directory, Duration.ofSeconds(1), -1).contains(key))
+        Files.write(file, ByteArray(40))
+        assertFalse(cache.contains(key))
+        cache.invalidate(key)
+        assertFalse(cache.contains(key))
     }
 
     @Test

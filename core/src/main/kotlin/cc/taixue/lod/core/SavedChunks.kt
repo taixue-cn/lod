@@ -15,6 +15,13 @@ import java.util.zip.InflaterInputStream
 class SavedChunks @Throws(IOException::class) constructor(region: Path) {
     @JvmRecord data class Chunk(val x: Int, val z: Int, val regionX: Int, val regionZ: Int)
 
+    /**
+     * Whether the most recently returned chunk had an explicit FULL status (LZ4 still needs Paper's
+     * guard).
+     */
+    var lastVerifiedFull: Boolean = false
+        private set
+
     private val name = Regex("r\\.(-?\\d+)\\.(-?\\d+)\\.mca")
     private val files =
         if (Files.isDirectory(region)) {
@@ -30,8 +37,10 @@ class SavedChunks @Throws(IOException::class) constructor(region: Path) {
     private var regionZ = 0
     private lateinit var regionFile: Path
 
+    /** Filters known cached slots before touching their compressed chunk payloads. */
+    @JvmOverloads
     @Throws(IOException::class)
-    fun next(): Chunk? {
+    fun next(accept: (Chunk) -> Boolean = { true }): Chunk? {
         while (true) {
             while (cursor < locations.size) {
                 val index = cursor++
@@ -43,7 +52,7 @@ class SavedChunks @Throws(IOException::class) constructor(region: Path) {
                         regionX,
                         regionZ,
                     )
-                if (full(regionFile, locations[index], chunk)) return chunk
+                if (accept(chunk) && full(regionFile, locations[index], chunk)) return chunk
             }
             if (!files.hasNext()) return null
             val path = files.next()
@@ -88,7 +97,10 @@ class SavedChunks @Throws(IOException::class) constructor(region: Path) {
                         ByteArray(size - 1).also(file::readFully)
                     }
                 type = type and 127
-                if (type == 4) return true
+                if (type == 4) {
+                    lastVerifiedFull = false
+                    return true
+                }
                 if (type !in 1..3) return false
                 val raw = ByteArrayInputStream(payload)
                 val decoded =
@@ -133,7 +145,7 @@ class SavedChunks @Throws(IOException::class) constructor(region: Path) {
                     .use { input ->
                         if (input.readUnsignedByte() != 10) return false
                         input.readUTF()
-                        compound(input, 0) == true
+                        (compound(input, 0) == true).also { if (it) lastVerifiedFull = true }
                     }
             }
         } catch (_: IOException) {

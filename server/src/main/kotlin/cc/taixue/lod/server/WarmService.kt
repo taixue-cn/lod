@@ -36,7 +36,12 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private data class Key(val world: UUID, val x: Int, val z: Int)
 
-    private data class Work(val chunk: SavedChunks.Chunk, val voxy: Boolean, val dh: Boolean)
+    private data class Work(
+        val chunk: SavedChunks.Chunk,
+        val voxy: Boolean,
+        val dh: Boolean,
+        val verifiedFull: Boolean = false,
+    )
 
     private class Job(val world: World, val protocols: Set<String>, val region: Path) {
         val coverage = CacheCoverage()
@@ -53,6 +58,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         var regionX = Int.MIN_VALUE
         var regionZ = 0
         val sections = mutableSetOf<Long>()
+        val storedSections = mutableMapOf<Long, Boolean>()
     }
 
     private val reader = Executors.newSingleThreadExecutor { task ->
@@ -239,7 +245,10 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         if (order.isNotEmpty()) Collections.rotate(order, -(rotation++ % order.size))
         // Bound snapshots/chunk loads, rather than leaving the encoder idle behind a tick quota.
         // Two slots remain available to real-time refreshes even with a full initialization queue.
-        val deadline = System.nanoTime() + 4_000_000
+        val deadline =
+            System.nanoTime() +
+                plugin.config.getLong("prewarm.global.main-thread-millis", 4).coerceIn(1, 25) *
+                    1_000_000
         for (job in order) {
             if (job.finished || job.cancelled) continue
             if (!plugin.worldAccess.cacheAllowed(job.world.uid)) {
@@ -272,29 +281,55 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                 var reused = 0L
                 var exhausted = false
                 var visited = 0
-                while (!closed && !job.cancelled && batch.size < 32 && visited++ < 1024) {
-                    val next = scan.next()
+                while (
+                    !closed &&
+                        !job.cancelled &&
+                        batch.size < 32 &&
+                        visited++ < 1024 &&
+                        reused < 1024
+                ) {
+                    var candidate: Work? = null
+                    val next = scan.next { chunk ->
+                        if (closed || job.cancelled || Thread.currentThread().isInterrupted)
+                            throw InterruptedException()
+                        if (job.regionX != chunk.regionX || job.regionZ != chunk.regionZ) {
+                            job.sections.clear()
+                            job.storedSections.clear()
+                            job.regionX = chunk.regionX
+                            job.regionZ = chunk.regionZ
+                        }
+                        val voxy =
+                            "voxy" in job.protocols &&
+                                !plugin.voxyService
+                                    .cache()
+                                    .contains(ColumnCache.Key(worldId, chunk.x, chunk.z))
+                        val x = Math.floorDiv(chunk.x, 4)
+                        val z = Math.floorDiv(chunk.z, 4)
+                        val section = Wire.pack(x, z)
+                        val dh =
+                            "dh" in job.protocols &&
+                                section !in job.sections &&
+                                !job.storedSections.getOrPut(section) {
+                                    plugin.dhSupport.lodRepository
+                                        .lodExistsAsync(worldId, x, z)
+                                        .join()
+                                }
+                        candidate = Work(chunk, voxy, dh)
+                        if (!voxy && !dh) reused++
+                        // Yield between worlds after a bounded run of cached slots, without reading
+                        // their NBT.
+                        voxy || dh || reused >= 1024
+                    }
                     if (next == null) {
                         exhausted = true
                         break
                     }
-                    val voxy =
-                        "voxy" in job.protocols &&
-                            plugin.voxyService
-                                .cache()
-                                .get(ColumnCache.Key(worldId, next.x, next.z)) == null
-                    if (job.regionX != next.regionX || job.regionZ != next.regionZ) {
-                        job.sections.clear()
-                        job.regionX = next.regionX
-                        job.regionZ = next.regionZ
-                    }
-                    val x = Math.floorDiv(next.x, 4)
-                    val z = Math.floorDiv(next.z, 4)
-                    val dh =
-                        "dh" in job.protocols &&
-                            job.sections.add(Wire.pack(x, z)) &&
-                            !plugin.dhSupport.lodRepository.lodExistsAsync(worldId, x, z).join()
-                    if (voxy || dh) batch += Work(next, voxy, dh) else reused++
+                    val work = checkNotNull(candidate)
+                    if (work.dh)
+                        job.sections +=
+                            Wire.pack(Math.floorDiv(next.x, 4), Math.floorDiv(next.z, 4))
+                    if (work.voxy || work.dh)
+                        batch += work.copy(verifiedFull = scan.lastVerifiedFull)
                 }
                 main {
                     job.scanning = false
@@ -335,7 +370,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         val next = work.chunk
         if (
             !plugin.worldAccess.cacheAllowed(job.world.uid) ||
-                !job.world.isChunkGenerated(next.x, next.z)
+                (!work.verifiedFull && !job.world.isChunkGenerated(next.x, next.z))
         ) {
             finish(job)
             return
@@ -344,7 +379,14 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         job.pending++
         val tasks = mutableListOf<CompletableFuture<*>>()
         if (work.voxy)
-            tasks += plugin.voxyService.warm(job.world, next.x, next.z, reuseCached = true)
+            tasks +=
+                plugin.voxyService.warm(
+                    job.world,
+                    next.x,
+                    next.z,
+                    reuseCached = true,
+                    knownGenerated = work.verifiedFull,
+                )
         if (work.dh) {
             val position = no.jckf.dhsupport.core.dataobject.SectionPosition()
             position.detailLevel = 6
@@ -385,6 +427,16 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     fun command(sender: CommandSender, args: Array<String>): Boolean {
         val action = args.firstOrNull() ?: "status"
         val target = args.getOrNull(1) ?: "all"
+        if (action == "budget") {
+            val millis = args.getOrNull(1)?.toIntOrNull()
+            if (millis == null || millis !in 1..25)
+                sender.sendMessage("/lod warm budget <1..25> (milliseconds per tick)")
+            else {
+                plugin.config.set("prewarm.global.main-thread-millis", millis)
+                sender.sendMessage("Prewarm main-thread budget: $millis ms/tick (temporary)")
+            }
+            return true
+        }
         if (action == "limit") {
             val limit = args.getOrNull(1)?.toIntOrNull()
             if (limit == null || limit !in 4..64) {

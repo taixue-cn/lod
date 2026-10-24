@@ -76,6 +76,33 @@ constructor(
     private fun path(key: Key): Path =
         root.resolve(key.world.toString()).resolve("${key.x}_${key.z}.gz")
 
+    /**
+     * Cheap existence/freshness check for atomic server-written files; get still validates the full
+     * payload.
+     */
+    fun contains(key: Key): Boolean =
+        try {
+            val file = path(key)
+            val attributes =
+                Files.readAttributes(file, java.nio.file.attribute.BasicFileAttributes::class.java)
+            if (
+                !attributes.isRegularFile ||
+                    attributes.size() < 18 ||
+                    (maxAgeMillis >= 0 &&
+                        System.currentTimeMillis() - attributes.lastModifiedTime().toMillis() >
+                            maxAgeMillis)
+            )
+                false
+            else
+                DataInputStream(GZIPInputStream(Files.newInputStream(file))).use { input ->
+                    input.readInt() == 0x41524c31 &&
+                        input.readLong() >= 0 &&
+                        input.readInt() in 0..Wire.MAX_FRAME
+                }
+        } catch (_: IOException) {
+            false
+        }
+
     @Synchronized
     fun get(key: Key): Entry? {
         val path = path(key)

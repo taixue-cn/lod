@@ -687,12 +687,16 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         return result
     }
 
-    /** Prewarming reuses valid disk entries; unload refreshes deliberately replace old models. */
+    /**
+     * Prewarming reuses disk entries; knownGenerated is reserved for saved chunks with verified
+     * FULL NBT.
+     */
     fun warm(
         world: World,
         x: Int,
         z: Int,
         reuseCached: Boolean = false,
+        knownGenerated: Boolean = false,
     ): CompletableFuture<Boolean> {
         val result = CompletableFuture<Boolean>()
         if (!access.cacheAllowed(world.uid)) {
@@ -700,7 +704,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
             return result
         }
         if (!reuseCached) {
-            loadWarm(world, x, z, result)
+            loadWarm(world, x, z, result, knownGenerated)
             return result
         }
         val key = ColumnCache.Key(world.uid, x, z)
@@ -713,7 +717,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                         if (!access.cacheAllowed(key.world) || revision != revision(key))
                             result.complete(false)
                         else if (hit != null) result.complete(true)
-                        else loadWarm(world, x, z, result)
+                        else loadWarm(world, x, z, result, knownGenerated)
                     }
                 } catch (error: Exception) {
                     result.completeExceptionally(error)
@@ -725,8 +729,14 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         return result
     }
 
-    private fun loadWarm(world: World, x: Int, z: Int, result: CompletableFuture<Boolean>) {
-        if (!access.cacheAllowed(world.uid) || !world.isChunkGenerated(x, z)) {
+    private fun loadWarm(
+        world: World,
+        x: Int,
+        z: Int,
+        result: CompletableFuture<Boolean>,
+        knownGenerated: Boolean,
+    ) {
+        if (!access.cacheAllowed(world.uid) || (!knownGenerated && !world.isChunkGenerated(x, z))) {
             result.complete(false)
             return
         }
