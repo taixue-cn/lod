@@ -4,6 +4,7 @@ import cc.taixue.lod.core.ColumnCache
 import cc.taixue.lod.core.ColumnValidation
 import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.SessionGate
+import cc.taixue.lod.core.TerrainBatch
 import cc.taixue.lod.core.Wire
 import dev.vox.lss.common.wire.WireSectionCursor
 import java.io.IOException
@@ -15,7 +16,6 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.function.Consumer
 import org.bukkit.Bukkit
 import org.bukkit.ChunkSnapshot
@@ -61,7 +61,18 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
             { task -> Thread(task, "ArchLOD-Voxy").apply { isDaemon = true } },
             ThreadPoolExecutor.AbortPolicy(),
         )
-    private val active = AtomicInteger()
+
+    private data class Pending(
+        val lease: SessionGate.Lease,
+        val key: ColumnCache.Key,
+        val revision: Revision,
+        val stamp: Long,
+    )
+
+    // Cache reads are batched separately from expensive world loading/encoding. Main-thread owned.
+    private val misses = ArrayDeque<Pending>()
+    private val generating = mutableSetOf<ColumnCache.Key>()
+    private var cacheReads = 0
     private val cache: ColumnCache
     private val raw: RawSender
     private var tick = 0L
@@ -95,7 +106,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         listOf(HANDSHAKE, REQUEST, "lss:client_info", "lss:region_summary_req").forEach {
             messenger.registerIncomingPluginChannel(plugin, it, this)
         }
-        listOf(CONFIG, COLUMN, RESPONSE, DIRTY).forEach {
+        listOf(CONFIG, COLUMN, RESPONSE, DIRTY, TerrainBatch.CHANNEL).forEach {
             messenger.registerOutgoingPluginChannel(plugin, it)
         }
         plugin.server.pluginManager.registerEvents(this, plugin)
@@ -181,7 +192,18 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     private fun tick() {
         if (closed) return
         tick++
-        var budget = plugin.config.getInt("lod.columns-per-tick", 2).coerceIn(1, 8)
+        var generationBudget = plugin.config.getInt("lod.columns-per-tick", 2).coerceIn(1, 8)
+        while (misses.isNotEmpty() && generationBudget > 0 && generating.size < 4) {
+            val request = misses.removeFirst()
+            if (!inRange(request.lease, request.key) || request.revision != revision(request.key)) {
+                finish(request.key)
+                continue
+            }
+            generating += request.key
+            generationBudget--
+            load(request.lease, request.key, request.revision, request.stamp)
+        }
+        var cacheBudget = plugin.config.getInt("lod.cached-columns-per-tick", 16).coerceIn(1, 64)
         val ordered = peers.values.toMutableList()
         if (ordered.isNotEmpty()) Collections.rotate(ordered, -(tick % ordered.size).toInt())
         for (peer in ordered) {
@@ -196,28 +218,103 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                 peer.wants.clear()
                 config(player, peer, current != null)
             }
-            if (current == null || budget <= 0 || active.get() >= 4 || peer.wants.isEmpty())
-                continue
-            val want = peer.wants.entries.first()
-            val position = want.key
-            val timestamp = want.value
-            peer.wants.remove(position)
-            val key = ColumnCache.Key(current.world, Wire.x(position), Wire.z(position))
-            if (!inRange(current, key) || key in busy) continue
-            busy += key
-            active.incrementAndGet()
-            budget--
-            val revision = revision(key)
+            if (current == null || cacheBudget <= 0 || cacheReads >= 2) continue
+            val batch = mutableListOf<Pending>()
+            val iterator = peer.wants.iterator()
+            while (iterator.hasNext() && batch.size < cacheBudget && busy.size < 128) {
+                val want = iterator.next()
+                val key = ColumnCache.Key(current.world, Wire.x(want.key), Wire.z(want.key))
+                if (!inRange(current, key)) {
+                    iterator.remove()
+                    continue
+                }
+                if (key in busy) continue
+                batch += Pending(current, key, revision(key), want.value)
+                busy += key
+                iterator.remove()
+            }
+            if (batch.isEmpty()) continue
+            cacheBudget -= batch.size
+            cacheReads++
             try {
                 workers.execute {
-                    val hit = cache.get(key)
+                    val hits = batch.map { it to cache.get(it.key) }
                     main {
-                        if (hit == null) load(current, key, revision, timestamp)
-                        else deliver(current, key, revision, timestamp, hit)
+                        cacheReads--
+                        val ready = mutableListOf<Pair<Pending, TerrainBatch.Item>>()
+                        for ((request, hit) in hits) {
+                            if (
+                                !inRange(request.lease, request.key) ||
+                                    request.revision != revision(request.key)
+                            ) {
+                                finish(request.key)
+                            } else if (hit == null) {
+                                misses.addLast(request)
+                            } else {
+                                val unchanged = request.stamp > 0 && request.stamp >= hit.timestamp
+                                ready +=
+                                    request to
+                                        TerrainBatch.Item(
+                                            Wire.pack(request.key.x, request.key.z),
+                                            if (unchanged) 1 else 0,
+                                            hit.timestamp,
+                                            if (unchanged) byteArrayOf() else hit.body,
+                                        )
+                                finish(request.key)
+                            }
+                        }
+                        sendResults(current, ready)
                     }
                 }
             } catch (_: RejectedExecutionException) {
-                finish(key)
+                cacheReads--
+                batch.forEach { finish(it.key) }
+            }
+        }
+    }
+
+    /**
+     * Validate every column and the lease immediately before egress, including queued cache hits.
+     */
+    private fun sendResults(
+        lease: SessionGate.Lease,
+        results: List<Pair<Pending, TerrainBatch.Item>>,
+    ) {
+        val valid =
+            results
+                .filter { (request, _) ->
+                    request.revision == revision(request.key) && inRange(lease, request.key)
+                }
+                .map { it.second }
+        if (valid.isEmpty()) return
+        val world = Bukkit.getWorld(lease.world) ?: return
+        val player = Bukkit.getPlayer(lease.player) ?: return
+        val peer = peers[lease.player] ?: return
+        if (peer.capabilities and TerrainBatch.CAPABILITY != 0) {
+            for (frame in TerrainBatch.encode(world.key.toString(), valid)) {
+                access.send(lease) { raw.send(player, TerrainBatch.CHANNEL, frame) }
+            }
+        } else {
+            // Preserve upstream LSS compatibility; acknowledgements already support multiple
+            // entries.
+            val statuses = valid.filter { it.type != 0 }
+            if (statuses.isNotEmpty()) {
+                val frame = Wire.Writer().varInt(statuses.size)
+                statuses.forEach { frame.u8(it.type).i64(it.position) }
+                access.send(lease) { raw.send(player, RESPONSE, frame.result()) }
+            }
+            for (item in valid.filter { it.type == 0 }) {
+                val frame =
+                    Wire.Writer()
+                        .i32(Wire.x(item.position))
+                        .i32(Wire.z(item.position))
+                        .utf(world.key.toString())
+                        .i64(item.timestamp)
+                        .u8(3)
+                        .u8(0)
+                        .bytes(item.body)
+                        .result()
+                access.send(lease) { raw.send(player, COLUMN, frame) }
             }
         }
     }
@@ -307,24 +404,19 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     ) {
         try {
             if (revision != revision(key) || !inRange(lease, key)) return
-            if (stamp > 0 && stamp >= entry.timestamp) {
-                answer(lease, key, 1)
-                return
-            }
-            val world = Bukkit.getWorld(key.world) ?: return
-            val frame =
-                Wire.Writer()
-                    .i32(key.x)
-                    .i32(key.z)
-                    .utf(world.key.toString())
-                    .i64(entry.timestamp)
-                    .u8(3)
-                    .u8(0)
-                    .bytes(entry.body)
-                    .result()
-            access.send(lease) {
-                Bukkit.getPlayer(lease.player)?.let { raw.send(it, COLUMN, frame) }
-            }
+            val unchanged = stamp > 0 && stamp >= entry.timestamp
+            sendResults(
+                lease,
+                listOf(
+                    Pending(lease, key, revision, stamp) to
+                        TerrainBatch.Item(
+                            Wire.pack(key.x, key.z),
+                            if (unchanged) 1 else 0,
+                            entry.timestamp,
+                            if (unchanged) byteArrayOf() else entry.body,
+                        )
+                ),
+            )
         } catch (error: RuntimeException) {
             warn(error)
         } finally {
@@ -333,12 +425,18 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     }
 
     private fun answer(lease: SessionGate.Lease, key: ColumnCache.Key, response: Int) {
-        val frame = Wire.Writer().varInt(1).u8(response).i64(Wire.pack(key.x, key.z)).result()
-        access.send(lease) { Bukkit.getPlayer(lease.player)?.let { raw.send(it, RESPONSE, frame) } }
+        sendResults(
+            lease,
+            listOf(
+                Pending(lease, key, revision(key), 0) to
+                    TerrainBatch.Item(Wire.pack(key.x, key.z), response)
+            ),
+        )
     }
 
     private fun finish(key: ColumnCache.Key) {
-        if (busy.remove(key)) active.decrementAndGet()
+        busy.remove(key)
+        generating.remove(key)
     }
 
     private fun main(operation: () -> Unit) {

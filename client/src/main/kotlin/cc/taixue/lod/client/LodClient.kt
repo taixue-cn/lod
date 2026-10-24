@@ -2,6 +2,7 @@ package cc.taixue.lod.client
 
 import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.RequestWindow
+import cc.taixue.lod.core.TerrainBatch
 import cc.taixue.lod.core.Wire
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -26,6 +27,14 @@ class LodClient : ClientModInitializer {
     private val timestamps = linkedMapOf<Long, Long>()
     private val requests = RequestWindow()
     private val pending = requests.pending
+
+    private data class Queued(val world: ClientLevel, val item: TerrainBatch.Item)
+
+    private val ingestion = ArrayDeque<Queued>()
+    private var ingestionBytes = 0
+    private var batchFrames = 0L
+    private var maxBatchModels = 0
+    private var unchangedColumns = 0L
     private var bridge: VoxyBridge? = null
     private lateinit var exchange: CacheExchange
     private lateinit var preferences: WorldPreferences
@@ -73,6 +82,7 @@ class LodClient : ClientModInitializer {
         }
         for (channel in
             listOf(
+                TerrainBatch.CHANNEL,
                 "lss:session_config",
                 "lss:voxel_column",
                 "lss:batch_response",
@@ -107,6 +117,8 @@ class LodClient : ClientModInitializer {
         cursor = 0
         timestamps.clear()
         pending.clear()
+        ingestion.clear()
+        ingestionBytes = 0
     }
 
     private fun tick(client: Minecraft) {
@@ -127,6 +139,8 @@ class LodClient : ClientModInitializer {
             pending.clear()
             cursor = 0
             resetCounters()
+            ingestion.clear()
+            ingestionBytes = 0
             if (handshook) send("taixue:lod_hello", Wire.Writer().varInt(1).result())
         }
         if (
@@ -141,11 +155,27 @@ class LodClient : ClientModInitializer {
                     .varInt(SharedConstants.getCurrentVersion().dataVersion().version())
                     .result(),
             )
-            send(HANDSHAKE, Wire.Writer().varInt(20).varInt(1).result())
+            send(HANDSHAKE, Wire.Writer().varInt(20).varInt(1 or TerrainBatch.CAPABILITY).result())
             send("taixue:lod_hello", Wire.Writer().varInt(1).result())
             handshook = true
         }
-        if (bridge == null || !enabled || !preferences.allows() || ticks % 4 != 0) return
+        if (bridge == null || !enabled || !preferences.allows()) {
+            ingestion.clear()
+            ingestionBytes = 0
+            return
+        }
+        // Bound main-thread ingestion independently of packet size and keep render frames
+        // responsive.
+        val until = System.nanoTime() + 4_000_000
+        var processed = 0
+        while (ingestion.isNotEmpty() && processed < 8 && System.nanoTime() < until) {
+            val queued = ingestion.removeFirst()
+            ingestionBytes -= queued.item.body.size
+            if (queued.world === world && queued.item.position in pending)
+                ingest(world, queued.item)
+            processed++
+        }
+        if (ingestionBytes >= 4 * 1024 * 1024) return
         val playerX = player.chunkPosition().x
         val playerZ = player.chunkPosition().z
         val radius = minOf(distance, preferences.radius())
@@ -157,9 +187,9 @@ class LodClient : ClientModInitializer {
                 abs(playerZ - Wire.z(it)) > radius ||
                 world.chunkSource.hasChunk(Wire.x(it), Wire.z(it))
         }
-        val wants = requests.retries(now, 16).toMutableList()
+        val wants = requests.retries(now, 32).toMutableList()
         for (checked in 0 until 512) {
-            if (wants.size >= 16 || requests.available <= 0) break
+            if (wants.size >= 32 || requests.available <= 0) break
             if (cursor >= total) cursor = 0
             val offset = spiral(cursor++)
             val x = playerX + offset[0]
@@ -211,8 +241,22 @@ class LodClient : ClientModInitializer {
             val world = level ?: return
             if (!enabled || !preferences.allows() || Minecraft.getInstance().level !== world) return
             when (channel) {
+                TerrainBatch.CHANNEL -> {
+                    val frame = TerrainBatch.decode(data)
+                    if (frame.world != world.dimension().identifier().toString()) return
+                    batchFrames++
+                    maxBatchModels = maxOf(maxBatchModels, frame.items.count { it.type == 0 })
+                    for (item in frame.items) {
+                        if (item.position !in pending) continue
+                        if (item.type == 0) enqueue(world, item)
+                        else {
+                            if (item.type == 1) unchangedColumns++
+                            pending.remove(item.position)
+                            timestamps[item.position] = System.currentTimeMillis()
+                        }
+                    }
+                }
                 "lss:voxel_column" -> {
-                    receivedColumns++
                     val x = reader.i32()
                     val z = reader.i32()
                     val dimension = reader.utf(256)
@@ -225,22 +269,14 @@ class LodClient : ClientModInitializer {
                         ignoredColumns++
                         return
                     }
-                    val position = Wire.pack(x, z)
-                    if (position !in pending) {
-                        ignoredColumns++
-                        return
-                    }
-                    if (bridge?.ingest(world, x, z, body) == true) {
-                        queuedColumns++
-                        timestamps[position] = stamp
-                        pending.remove(position)
-                    } else ignoredColumns++
+                    enqueue(world, TerrainBatch.Item(Wire.pack(x, z), 0, stamp, body))
                 }
                 "lss:batch_response" -> {
                     repeat(reader.count(4096)) {
                         val type = reader.u8()
                         val position = reader.i64()
                         if (type == 1 || type == 2) {
+                            if (type == 1) unchangedColumns++
                             pending.remove(position)
                             timestamps[position] = System.currentTimeMillis()
                         }
@@ -252,6 +288,12 @@ class LodClient : ClientModInitializer {
                         val position = reader.i64()
                         timestamps.remove(position)
                         pending.remove(position)
+                        ingestion.removeAll {
+                            if (it.item.position == position) {
+                                ingestionBytes -= it.item.body.size
+                                true
+                            } else false
+                        }
                     }
                     reader.end()
                 }
@@ -273,11 +315,15 @@ class LodClient : ClientModInitializer {
                 "Voxy 接口: ${bridge != null}；握手已发送: $handshook；服务器已应答: $sessionReceived",
                 "服务器允许下载: $enabled；个人世界设置允许: ${preferences.allows()}",
                 "本世界收到模型: $receivedColumns；已提交 Voxy 队列: $queuedColumns；忽略: $ignoredColumns；错误: $errors",
+                "批量响应: $batchFrames；缓存有效确认: $unchangedColumns；待处理模型: ${ingestion.size}",
                 "等待响应: ${pending.size}；下载半径: ${minOf(distance, preferences.radius())} 区块",
             )
             .also { lines -> lines.forEach { logger.info(it) } }
 
     private fun resetCounters() {
+        batchFrames = 0
+        maxBatchModels = 0
+        unchangedColumns = 0
         receivedColumns = 0
         queuedColumns = 0
         ignoredColumns = 0
@@ -287,6 +333,31 @@ class LodClient : ClientModInitializer {
     private fun warn(error: Exception) {
         if (++errors == 1L || errors % 100 == 0L)
             logger.warn("LOD frame could not be ingested ({}): {}", errors, error.toString())
+    }
+
+    private fun enqueue(world: ClientLevel, item: TerrainBatch.Item) {
+        receivedColumns++
+        if (item.position !in pending || ingestionBytes + item.body.size > 8 * 1024 * 1024) {
+            ignoredColumns++
+            return
+        }
+        ingestion.addLast(Queued(world, item))
+        ingestionBytes += item.body.size
+    }
+
+    private fun ingest(world: ClientLevel, item: TerrainBatch.Item) {
+        try {
+            if (
+                bridge?.ingest(world, Wire.x(item.position), Wire.z(item.position), item.body) ==
+                    true
+            ) {
+                queuedColumns++
+                timestamps[item.position] = item.timestamp
+                pending.remove(item.position)
+            } else ignoredColumns++
+        } catch (error: Exception) {
+            warn(error)
+        }
     }
 
     private fun send(channel: String, bytes: ByteArray) {
