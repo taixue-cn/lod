@@ -78,6 +78,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     private var tick = 0L
     private var errors = 0L
     private var uploads: UploadService? = null
+    private var fast: FastTerrainService? = null
     private var closed = false
 
     init {
@@ -112,6 +113,27 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         plugin.server.pluginManager.registerEvents(this, plugin)
         Bukkit.getScheduler().runTaskTimer(plugin, Runnable(::tick), 1, 1)
         uploads = UploadService(plugin, access, raw, this)
+        try {
+            fast =
+                FastTerrainService(plugin, access, raw, cache) { player, position ->
+                    val peer = peers[player]
+                    if (
+                        peer != null &&
+                            peer.wants.size < 256 &&
+                            access.inRange(
+                                peer.lease,
+                                Wire.x(position).toLong(),
+                                Wire.z(position).toLong(),
+                            )
+                    )
+                        peer.wants.putIfAbsent(position, 0)
+                }
+            fast!!.start()
+        } catch (error: Exception) {
+            fast?.close()
+            fast = null
+            plugin.logger.warning("Native synchronization unavailable: $error")
+        }
     }
 
     override fun onPluginMessageReceived(channel: String, player: Player, message: ByteArray) {
@@ -450,6 +472,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     fun dirty(world: World, x: Int, z: Int) {
         BackgroundChunks.changed(world.uid, x, z)
         val key = ColumnCache.Key(world.uid, x, z)
+        fast?.invalidate(key)
         revisions.merge(key, 1L, Long::plus)
         try {
             workers.execute {
@@ -617,6 +640,12 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
 
     fun cache(): ColumnCache = cache
 
+    fun cacheEntries() = cache.entries() + (fast?.regions?.entries() ?: emptyList())
+
+    fun evict(entry: cc.taixue.lod.core.CacheRetention.Entry) {
+        if (entry.id.startsWith("native:")) fast?.regions?.evict(entry) else cache.evict(entry)
+    }
+
     fun refreshSnapshot(world: World, snapshot: ChunkSnapshot): CompletableFuture<Boolean> {
         val result = CompletableFuture<Boolean>()
         val key = ColumnCache.Key(world.uid, snapshot.x, snapshot.z)
@@ -696,6 +725,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     fun uploads(): UploadService = checkNotNull(uploads)
 
     override fun close() {
+        fast?.close()
         uploads?.close()
         closed = true
         peers.clear()

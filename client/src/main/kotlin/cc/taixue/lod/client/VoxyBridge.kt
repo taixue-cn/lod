@@ -75,7 +75,7 @@ internal class VoxyBridge @Throws(ReflectiveOperationException::class) construct
     private fun readLight(buffer: FriendlyByteBuf): ByteArray =
         ByteArray(2048).also { buffer.readBytes(it) }
 
-    private fun resolve(identity: String): BlockState {
+    internal fun resolve(identity: String): BlockState {
         val parsed = IdentityCodec.parse(identity)
         val block =
             BuiltInRegistries.BLOCK.getOptional(Identifier.parse(parsed.name()))

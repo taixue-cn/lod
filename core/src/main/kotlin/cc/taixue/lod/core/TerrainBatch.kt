@@ -17,7 +17,7 @@ object TerrainBatch {
 
     data class Frame(val world: String, val items: List<Item>)
 
-    fun encode(world: String, items: List<Item>): List<ByteArray> {
+    fun encode(world: String, items: List<Item>, maximumBytes: Int = MAX_BYTES): List<ByteArray> {
         val header = Wire.Writer().varInt(1).utf(world).result()
         require(world.toByteArray(Charsets.UTF_8).size <= 256)
         val frames = mutableListOf<ByteArray>()
@@ -36,8 +36,8 @@ object TerrainBatch {
             val output = Wire.Writer().u8(item.type).i64(item.position)
             if (item.type == 0) output.i64(item.timestamp).bytes(item.body)
             val part = output.result()
-            require(header.size + 5 + part.size <= MAX_BYTES) { "column too large for batch" }
-            if (size + part.size > MAX_BYTES || parts.size == MAX_ITEMS) flush()
+            require(header.size + 5 + part.size <= maximumBytes) { "column too large for batch" }
+            if (size + part.size > maximumBytes || parts.size == MAX_ITEMS) flush()
             parts += part
             size += part.size
         }

@@ -1,5 +1,6 @@
 package cc.taixue.lod.client
 
+import cc.taixue.lod.core.FastTerrain
 import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.RequestWindow
 import cc.taixue.lod.core.TerrainBatch
@@ -36,6 +37,7 @@ class LodClient : ClientModInitializer {
     private var maxBatchModels = 0
     private var unchangedColumns = 0L
     private var bridge: VoxyBridge? = null
+    private var fast: FastTerrainClient? = null
     private lateinit var exchange: CacheExchange
     private lateinit var preferences: WorldPreferences
     private var lastPreference: ByteArray? = null
@@ -68,6 +70,8 @@ class LodClient : ClientModInitializer {
         if (bridge == null) logger.info("Voxy unavailable; server terrain bridge remains inactive")
         for (channel in
             listOf(
+                FastTerrain.HELLO,
+                FastTerrain.REQUEST,
                 HANDSHAKE,
                 INFO,
                 REQUEST,
@@ -82,6 +86,9 @@ class LodClient : ClientModInitializer {
         }
         for (channel in
             listOf(
+                FastTerrain.CONFIG,
+                FastTerrain.INDEX,
+                FastTerrain.DATA,
                 TerrainBatch.CHANNEL,
                 "lss:session_config",
                 "lss:voxel_column",
@@ -97,6 +104,13 @@ class LodClient : ClientModInitializer {
                 context.client().execute { receive(channel, frame.bytes) }
             }
         }
+        bridge?.let {
+            try {
+                fast = FastTerrainClient(::send, it, loader.gameDir.resolve("lod-native-cache-v1"))
+            } catch (error: ReflectiveOperationException) {
+                logger.info("Prepared native cache API unavailable: {}", error.toString())
+            }
+        }
         preferences = WorldPreferences(::status)
         exchange = CacheExchange(::send)
         ClientPlayConnectionEvents.JOIN.register { _, _, _ -> reset() }
@@ -106,6 +120,7 @@ class LodClient : ClientModInitializer {
     }
 
     private fun reset() {
+        fast?.reset()
         if (::exchange.isInitialized) exchange.reset()
         enabled = false
         sessionReceived = false
@@ -159,7 +174,16 @@ class LodClient : ClientModInitializer {
             send("taixue:lod_hello", Wire.Writer().varInt(1).result())
             handshook = true
         }
+        if (bridge != null && (!enabled || !preferences.allows()))
+            fast?.tick(client, false, preferences.radius())
         if (bridge == null || !enabled || !preferences.allows()) {
+            ingestion.clear()
+            ingestionBytes = 0
+            return
+        }
+        fast?.tick(client, enabled && preferences.allows(), preferences.radius())
+        if (fast?.enabled == true) {
+            pending.clear()
             ingestion.clear()
             ingestionBytes = 0
             return
@@ -224,6 +248,10 @@ class LodClient : ClientModInitializer {
                 exchange.want(data)
                 return
             }
+            if (channel in listOf(FastTerrain.CONFIG, FastTerrain.INDEX, FastTerrain.DATA)) {
+                fast?.receive(channel, data, Minecraft.getInstance())
+                return
+            }
             val reader = Wire.Reader(data)
             if (channel == "lss:session_config") {
                 if (reader.varInt() != 20) return
@@ -240,6 +268,12 @@ class LodClient : ClientModInitializer {
             }
             val world = level ?: return
             if (!enabled || !preferences.allows() || Minecraft.getInstance().level !== world) return
+            if (
+                fast?.enabled == true &&
+                    channel in
+                        listOf(TerrainBatch.CHANNEL, "lss:voxel_column", "lss:batch_response")
+            )
+                return
             when (channel) {
                 TerrainBatch.CHANNEL -> {
                     val frame = TerrainBatch.decode(data)
@@ -286,6 +320,7 @@ class LodClient : ClientModInitializer {
                 "lss:dirty_columns" -> {
                     repeat(reader.count(10000)) {
                         val position = reader.i64()
+                        fast?.dirty(position)
                         timestamps.remove(position)
                         pending.remove(position)
                         ingestion.removeAll {
@@ -311,6 +346,7 @@ class LodClient : ClientModInitializer {
      */
     private fun status(): List<String> =
         listOf(
+                fast?.status() ?: "原生远景: 当前 Voxy 不支持，使用兼容模式",
                 "LOD 世界: ${level?.dimension()?.identifier() ?: "未进入世界"}",
                 "Voxy 接口: ${bridge != null}；握手已发送: $handshook；服务器已应答: $sessionReceived",
                 "服务器允许下载: $enabled；个人世界设置允许: ${preferences.allows()}",

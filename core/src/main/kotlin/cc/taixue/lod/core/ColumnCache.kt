@@ -24,6 +24,42 @@ constructor(
 
     @JvmRecord data class Entry(val timestamp: Long, val body: ByteArray)
 
+    @Volatile var changed: (Key, Long) -> Unit = { _, _ -> }
+
+    /** File versions are opaque nanosecond values, independent of client clocks. */
+    fun version(key: Key): Long =
+        try {
+            val file = path(key)
+            if (!Files.isRegularFile(file)) 0L
+            else Files.getLastModifiedTime(file).to(java.util.concurrent.TimeUnit.NANOSECONDS)
+        } catch (_: IOException) {
+            0L
+        }
+
+    fun catalog(): List<Pair<Key, Long>> {
+        if (!Files.isDirectory(root)) return emptyList()
+        return Files.walk(root).use { paths ->
+            paths
+                .filter { it.toString().endsWith(".gz") }
+                .toList()
+                .mapNotNull { file ->
+                    try {
+                        val coordinates = file.fileName.toString().removeSuffix(".gz").split('_')
+                        if (coordinates.size != 2) return@mapNotNull null
+                        val key =
+                            Key(
+                                UUID.fromString(file.parent.fileName.toString()),
+                                coordinates[0].toInt(),
+                                coordinates[1].toInt(),
+                            )
+                        key to version(key)
+                    } catch (_: IllegalArgumentException) {
+                        null
+                    }
+                }
+        }
+    }
+
     private val maxAgeMillis = maxAge.toMillis()
 
     init {
@@ -56,6 +92,7 @@ constructor(
         } catch (_: IOException) {
             try {
                 Files.deleteIfExists(path)
+                changed(key, 0)
             } catch (_: IOException) {
                 // A failed cleanup must not make a corrupt cache entry readable.
             }
@@ -87,6 +124,7 @@ constructor(
             } catch (_: AtomicMoveNotSupportedException) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
             }
+            changed(key, version(key))
         } finally {
             Files.deleteIfExists(temporary)
         }
@@ -96,6 +134,7 @@ constructor(
     @Throws(IOException::class)
     fun invalidate(key: Key) {
         Files.deleteIfExists(path(key))
+        changed(key, 0)
     }
 
     @Synchronized
@@ -131,6 +170,8 @@ constructor(
             "cache entry"
         }
         Files.deleteIfExists(root.resolve(entry.world.toString()).resolve(parts[2]))
+        val coordinates = parts[2].removeSuffix(".gz").split('_').map(String::toInt)
+        changed(Key(entry.world, coordinates[0], coordinates[1]), 0)
     }
 
     @Synchronized
@@ -155,6 +196,16 @@ constructor(
             if (total <= maxBytes) break
             val size = Files.size(path)
             Files.deleteIfExists(path)
+            val coordinates =
+                path.fileName.toString().removeSuffix(".gz").split('_').map(String::toInt)
+            changed(
+                Key(
+                    UUID.fromString(path.parent.fileName.toString()),
+                    coordinates[0],
+                    coordinates[1],
+                ),
+                0,
+            )
             total -= size
         }
     }

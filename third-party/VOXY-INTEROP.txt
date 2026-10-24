@@ -1,0 +1,14 @@
+Voxy interoperation references
+Upstream: https://github.com/MCRcortex/voxy
+License: GNU General Public License v3.0 (project remains GPL-3.0-or-later).
+
+PreparedColumn implements registry-independent cells and mip selection compatible with Voxy's
+Mapper, Mipper and WorldVoxilizedSectionMipper. NativeVoxy uses the upstream WorldUpdater API
+reflectively and checks the cell layout and mip count. It resolves all block and biome mappings
+through the active client engine; remote numeric mapping IDs are never trusted.
+
+Sources consulted:
+https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/common/world/other/Mipper.java
+https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/common/world/other/Mapper.java
+https://github.com/MCRcortex/voxy/blob/dev/src/main/java/me/cortex/voxy/common/world/WorldUpdater.java
+No Voxy jar or compiled upstream classes are bundled in LodClient or LodServer.

@@ -112,12 +112,12 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
         worker.execute {
             try {
                 val entries =
-                    plugin.voxyService.cache().entries() +
+                    plugin.voxyService.cacheEntries() +
                         plugin.dhSupport.lodRepository.cacheEntriesAsync().join()
                 val victims = CacheRetention.victims(entries, limit, policy)
                 victims
-                    .filter { it.id.startsWith("voxy:") }
-                    .forEach { plugin.voxyService.cache().evict(it) }
+                    .filter { it.id.startsWith("voxy:") || it.id.startsWith("native:") }
+                    .forEach { plugin.voxyService.evict(it) }
                 plugin.dhSupport.lodRepository.evictAsync(victims).join()
                 val total = entries.sumOf { it.bytes } - victims.sumOf { it.bytes }
                 status =

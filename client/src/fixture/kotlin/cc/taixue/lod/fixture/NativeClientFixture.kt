@@ -95,13 +95,19 @@ class NativeClientFixture : ClientModInitializer {
                                 acceptedColumn()
                         ) {
                             val entry = entries().single()
-                            for (name in
-                                listOf("receivedColumns", "queuedColumns", "batchFrames")) {
-                                val field =
-                                    entry.javaClass.getDeclaredField(name).apply {
-                                        isAccessible = true
-                                    }
-                                check(field.getLong(entry) > 0)
+                            val fast =
+                                entry.javaClass
+                                    .getDeclaredField("fast")
+                                    .apply { isAccessible = true }
+                                    .get(entry)
+                            check(fast != null)
+                            for (name in listOf("received", "imported")) {
+                                check(
+                                    fast.javaClass
+                                        .getDeclaredField(name)
+                                        .apply { isAccessible = true }
+                                        .getLong(fast) > 0
+                                )
                             }
                             check(checkClientCommand(client))
                             finish(
@@ -201,12 +207,13 @@ class NativeClientFixture : ClientModInitializer {
 
     private fun acceptedColumn(): Boolean =
         entries().any { entry ->
-            val value =
-                entry.javaClass
-                    .getDeclaredField("timestamps")
-                    .apply { isAccessible = true }
-                    .get(entry) as Map<*, *>
-            value.containsKey((4L shl 32) or 4L)
+            val fast =
+                entry.javaClass.getDeclaredField("fast").apply { isAccessible = true }.get(entry)
+                    ?: return@any false
+            val completed =
+                fast.javaClass.getDeclaredField("completed").apply { isAccessible = true }.get(fast)
+                    as Map<*, *>
+            completed.containsKey((4L shl 32) or 4L)
         }
 
     private fun dhDebug() {

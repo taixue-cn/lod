@@ -98,6 +98,7 @@ class Fixture : JavaPlugin(), Listener {
             true
         }
         logger.info("LOD_FIXTURE_READY")
+        NativePreparationFixture.start(this)
     }
 
     private fun lod() = Bukkit.getPluginManager().getPlugin("LodServer") as LodServer
