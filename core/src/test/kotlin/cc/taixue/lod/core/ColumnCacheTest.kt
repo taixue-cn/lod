@@ -22,6 +22,15 @@ class ColumnCacheTest {
         val cache = ColumnCache(directory, Duration.ofMinutes(5), 10000)
         cache.put(first, ColumnCache.Entry(123, byteArrayOf(1, 2, 3)))
         assertNull(cache.get(second))
+        cache.put(second, ColumnCache.Entry(456, byteArrayOf(4)))
+        org.junit.jupiter.api.Assertions.assertEquals(
+            setOf(first),
+            cache.catalog(first.world).map { it.first }.toSet(),
+        )
+        org.junit.jupiter.api.Assertions.assertEquals(
+            setOf(first, second),
+            cache.catalog().map { it.first }.toSet(),
+        )
         assertArrayEquals(
             byteArrayOf(1, 2, 3),
             ColumnCache(directory, Duration.ofMinutes(5), 10000).get(first)!!.body,

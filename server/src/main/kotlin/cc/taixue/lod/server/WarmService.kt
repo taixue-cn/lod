@@ -149,7 +149,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             try {
                 // Count only saved chunks accepted by the same reader as the prewarm queue.
                 // This scan uses a separate I/O worker, so it cannot block generation dispatch.
-                plugin.voxyService.cache().catalog().forEach { (key, version) ->
+                plugin.voxyService.cache().catalog(worldId).forEach { (key, version) ->
                     if (key.world == worldId)
                         job.coverage.observe(Wire.pack(key.x, key.z), version, seed = true)
                 }
@@ -301,9 +301,9 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                         }
                         val voxy =
                             "voxy" in job.protocols &&
-                                !plugin.voxyService
-                                    .cache()
-                                    .contains(ColumnCache.Key(worldId, chunk.x, chunk.z))
+                                !plugin.voxyService.hasCached(
+                                    ColumnCache.Key(worldId, chunk.x, chunk.z)
+                                )
                         val x = Math.floorDiv(chunk.x, 4)
                         val z = Math.floorDiv(chunk.z, 4)
                         val section = Wire.pack(x, z)

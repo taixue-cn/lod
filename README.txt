@@ -155,6 +155,7 @@ LodServer 0.2.0 — ARCH 共享远景缓存
   /lods warm status 查看每个世界进度；/lods warm stop all 停止后续工作。
   手动 start 可启动尚未设为自动预热的世界，仍使用该世界的协议选择。
   初始化先探测 Voxy/DH 缓存，已有模型的槽位不再解压原始地形或完整模型；读取模型时仍校验完整载荷。
+  共享目录索引就绪后直接复用它检查缓存，进度统计也只扫描本世界的缓存目录。
   重启后不再逐块重编码，失效/缺失缓存会补齐。
   max-inflight 默认 32（4～256），保留两个实时更新槽位；world-max-inflight 默认 8（1～32）限制单个世界。
   不再使用 chunks-per-tick 限制；main-thread-millis 默认 4（1～25）控制每 tick 的调度时间预算，单次快照不能中断。

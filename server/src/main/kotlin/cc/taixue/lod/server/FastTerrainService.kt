@@ -382,6 +382,14 @@ class FastTerrainService(
         }
     }
 
+    /**
+     * The completed catalog tracks atomic writes/invalidations; payloads remain validated on read.
+     */
+    fun hasCached(key: ColumnCache.Key): Boolean? {
+        if (!indexed || plugin.config.getInt("lod.cache-max-age-seconds", -1) >= 0) return null
+        return (catalog[key] ?: 0L) > 0
+    }
+
     fun invalidate(key: ColumnCache.Key) {
         catalog[key] = 0
     }

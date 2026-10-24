@@ -43,9 +43,11 @@ constructor(
             0L
         }
 
-    fun catalog(): List<Pair<Key, Long>> {
-        if (!Files.isDirectory(root)) return emptyList()
-        return Files.walk(root).use { paths ->
+    @JvmOverloads
+    fun catalog(world: UUID? = null): List<Pair<Key, Long>> {
+        val directory = world?.let { root.resolve(it.toString()) } ?: root
+        if (!Files.isDirectory(directory)) return emptyList()
+        return Files.walk(directory).use { paths ->
             paths
                 .filter { it.toString().endsWith(".gz") }
                 .toList()

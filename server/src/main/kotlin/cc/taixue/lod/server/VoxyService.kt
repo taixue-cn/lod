@@ -640,6 +640,9 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         return true
     }
 
+    /** Falls back to a bounded header probe while the shared catalog is still being indexed. */
+    fun hasCached(key: ColumnCache.Key): Boolean = fast?.hasCached(key) ?: cache.contains(key)
+
     fun cache(): ColumnCache = cache
 
     fun cacheEntries() = cache.entries() + (fast?.regions?.entries() ?: emptyList())
