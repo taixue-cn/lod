@@ -65,6 +65,8 @@ class ManagedWorlds(private val plugin: LodServer) : AutoCloseable {
                     .put("state", status.state)
                     .put("completed_chunks", status.completedChunks)
                     .put("failed_chunks", status.failedChunks)
+                    .put("cached_chunks", status.cachedChunks)
+                    .put("total_chunks", status.totalChunks ?: JSONObject.NULL)
             )
         }
         val requestStarted = System.nanoTime()

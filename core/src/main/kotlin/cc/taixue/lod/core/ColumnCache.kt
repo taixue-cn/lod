@@ -24,7 +24,14 @@ constructor(
 
     @JvmRecord data class Entry(val timestamp: Long, val body: ByteArray)
 
+    val listeners = java.util.concurrent.CopyOnWriteArrayList<(Key, Long) -> Unit>()
+
     @Volatile var changed: (Key, Long) -> Unit = { _, _ -> }
+
+    private fun publish(key: Key, version: Long) {
+        changed(key, version)
+        listeners.forEach { it(key, version) }
+    }
 
     /** File versions are opaque nanosecond values, independent of client clocks. */
     fun version(key: Key): Long =
@@ -92,7 +99,7 @@ constructor(
         } catch (_: IOException) {
             try {
                 Files.deleteIfExists(path)
-                changed(key, 0)
+                publish(key, 0)
             } catch (_: IOException) {
                 // A failed cleanup must not make a corrupt cache entry readable.
             }
@@ -124,7 +131,7 @@ constructor(
             } catch (_: AtomicMoveNotSupportedException) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
             }
-            changed(key, version(key))
+            publish(key, version(key))
         } finally {
             Files.deleteIfExists(temporary)
         }
@@ -134,7 +141,7 @@ constructor(
     @Throws(IOException::class)
     fun invalidate(key: Key) {
         Files.deleteIfExists(path(key))
-        changed(key, 0)
+        publish(key, 0)
     }
 
     @Synchronized
@@ -171,7 +178,7 @@ constructor(
         }
         Files.deleteIfExists(root.resolve(entry.world.toString()).resolve(parts[2]))
         val coordinates = parts[2].removeSuffix(".gz").split('_').map(String::toInt)
-        changed(Key(entry.world, coordinates[0], coordinates[1]), 0)
+        publish(Key(entry.world, coordinates[0], coordinates[1]), 0)
     }
 
     @Synchronized
@@ -198,7 +205,7 @@ constructor(
             Files.deleteIfExists(path)
             val coordinates =
                 path.fileName.toString().removeSuffix(".gz").split('_').map(String::toInt)
-            changed(
+            publish(
                 Key(
                     UUID.fromString(path.parent.fileName.toString()),
                     coordinates[0],

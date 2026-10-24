@@ -1,5 +1,7 @@
 package cc.taixue.lod.server
 
+import cc.taixue.lod.core.CacheCoverage
+import cc.taixue.lod.core.ColumnCache
 import cc.taixue.lod.core.SavedChunks
 import cc.taixue.lod.core.Wire
 import java.nio.file.Files
@@ -24,11 +26,19 @@ import org.bukkit.event.world.WorldUnloadEvent
 /** Server-owned prewarming scans saved terrain; it never generates unexplored chunks. */
 class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     /** Main-thread snapshot; scanning does not invent an estimated total. */
-    data class Status(val state: String, val completedChunks: Long, val failedChunks: Long)
+    data class Status(
+        val state: String,
+        val completedChunks: Long,
+        val failedChunks: Long,
+        val totalChunks: Long? = null,
+        val cachedChunks: Long = 0,
+    )
 
     private data class Key(val world: UUID, val x: Int, val z: Int)
 
     private class Job(val world: World, val protocols: Set<String>, val region: Path) {
+        val coverage = CacheCoverage()
+        @Volatile var cancelled = false
         var scan: SavedChunks? = null
         var pending = false
         var finished = false
@@ -42,16 +52,24 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     private val reader = Executors.newSingleThreadExecutor { task ->
         Thread(task, "LOD-region-index").apply { isDaemon = true }
     }
+    private val inventory = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "LOD-coverage-inventory").apply { isDaemon = true }
+    }
+    private val coverage = java.util.concurrent.ConcurrentHashMap<UUID, CacheCoverage>()
+    private val cacheListener: (ColumnCache.Key, Long) -> Unit = { key, version ->
+        coverage[key.world]?.observe(Wire.pack(key.x, key.z), version)
+    }
     private val jobs = linkedMapOf<UUID, Job>()
     private val unloads = linkedMapOf<Key, ChunkSnapshot?>()
     private val unloadDh = linkedSetOf<Key>()
     private var active = 0
     private var rotation = 0
-    private var closed = false
+    @Volatile private var closed = false
     private var completed = 0L
     private var failed = 0L
 
     init {
+        plugin.voxyService.cache().listeners.add(cacheListener)
         Bukkit.getPluginManager().registerEvents(this, plugin)
         Bukkit.getScheduler().runTaskTimer(plugin, Runnable(::tick), 1, 1)
         Bukkit.getScheduler()
@@ -91,7 +109,8 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     @EventHandler
     fun unloadWorld(event: WorldUnloadEvent) {
-        jobs.remove(event.world.uid)
+        jobs.remove(event.world.uid)?.cancelled = true
+        coverage.remove(event.world.uid)
         unloads.keys.removeIf { it.world == event.world.uid }
         unloadDh.removeIf { it.world == event.world.uid }
     }
@@ -108,20 +127,54 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         if (old != null && !old.finished) return false
         val selected = requestedProtocols ?: protocols(world)
         require(selected.isNotEmpty() && setOf("voxy", "dh").containsAll(selected))
-        jobs[world.uid] = Job(world, selected, region(world))
+        old?.cancelled = true
+        val job = Job(world, selected, region(world))
+        jobs[world.uid] = job
+        coverage[world.uid] = job.coverage
+        val worldId = world.uid
+        val worldName = world.name
+        inventory.execute {
+            try {
+                // Count only saved chunks accepted by the same reader as the prewarm queue.
+                // This scan uses a separate I/O worker, so it cannot block generation dispatch.
+                plugin.voxyService.cache().catalog().forEach { (key, version) ->
+                    if (key.world == worldId)
+                        job.coverage.observe(Wire.pack(key.x, key.z), version, seed = true)
+                }
+                val positions = mutableSetOf<Long>()
+                val reader = SavedChunks(job.region)
+                while (!closed && !job.cancelled && !Thread.currentThread().isInterrupted) {
+                    val chunk = reader.next() ?: break
+                    positions += Wire.pack(chunk.x, chunk.z)
+                }
+                if (!closed && !job.cancelled) job.coverage.inventory(positions)
+            } catch (error: Exception) {
+                if (!closed && !job.cancelled)
+                    plugin.logger.warning(
+                        "LOD coverage inventory ${worldName}: ${error.javaClass.simpleName}"
+                    )
+            }
+        }
         return true
     }
 
     fun stop(world: UUID): Boolean {
         unloads.keys.removeIf { it.world == world }
         unloadDh.removeIf { it.world == world }
-        return jobs.remove(world) != null
+        coverage.remove(world)
+        return jobs.remove(world)?.also { it.cancelled = true } != null
     }
 
     fun status(world: UUID): Status {
         val job = jobs[world] ?: return Status("OFF", 0, 0)
         val state = if (!job.finished) "RUNNING" else if (job.errors > 0) "FAILED" else "COMPLETED"
-        return Status(state, job.done, job.errors)
+        return Status(
+            state,
+            job.done,
+            job.errors,
+            job.coverage.totalChunks,
+            job.coverage.cachedChunks,
+        )
     }
 
     private fun region(world: World): Path {
@@ -298,6 +351,10 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     override fun close() {
         closed = true
+        jobs.values.forEach { it.cancelled = true }
+        inventory.shutdownNow()
+        plugin.voxyService.cache().listeners.remove(cacheListener)
+        coverage.clear()
         reader.shutdownNow()
         jobs.clear()
         unloads.clear()
