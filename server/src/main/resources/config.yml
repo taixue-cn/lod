@@ -290,3 +290,12 @@ prewarm:
     chunks-per-tick: 1
   by_world: {}
   # Example: main-city: {enabled: true, protocols: [voxy, dh]}
+
+# Optional outbound management. Enabled mode replaces the static world list;
+# new/unregistered worlds deny terrain until an authenticated policy enables them.
+# Existing player permissions, personal preferences and cache budgets still apply.
+management:
+  enabled: false
+  sync-url: ""
+  server-id: 0
+  token: ""

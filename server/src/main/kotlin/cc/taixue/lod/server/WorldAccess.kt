@@ -18,12 +18,12 @@ import org.bukkit.event.player.PlayerQuitEvent
 import org.bukkit.event.player.PlayerRespawnEvent
 import org.bukkit.event.world.WorldLoadEvent
 import org.bukkit.event.world.WorldUnloadEvent
-import org.bukkit.plugin.java.JavaPlugin
 
 /** Main-thread-owned authorization; unresolved world permissions always deny. */
-class WorldAccess(private val plugin: JavaPlugin) : Listener {
+class WorldAccess(private val plugin: LodServer) : Listener {
     private val gate = SessionGate()
     @Volatile private lateinit var policy: WorldPolicy
+    @Volatile private var managed = false
     private val personal = mutableMapOf<UUID, WorldPolicy>()
     private val knownWorlds = ConcurrentHashMap<UUID, Array<String>>()
 
@@ -47,6 +47,7 @@ class WorldAccess(private val plugin: JavaPlugin) : Listener {
     }
 
     fun refreshPolicy() {
+        managed = plugin.config.getBoolean("management.enabled", false)
         policy =
             WorldPolicy(
                 plugin.config.getString("lod.worlds.mode", "blacklist")!!,
@@ -54,7 +55,13 @@ class WorldAccess(private val plugin: JavaPlugin) : Listener {
             )
     }
 
-    fun cacheAllowed(world: UUID): Boolean = knownWorlds[world]?.let { policy.allows(*it) } ?: false
+    fun cacheAllowed(world: UUID): Boolean {
+        if (!knownWorlds.containsKey(world)) return false
+        if (managed) {
+            return plugin.managedWorlds?.allows(world) == true
+        }
+        return knownWorlds[world]?.let { policy.allows(*it) } ?: false
+    }
 
     private fun know(world: World) {
         knownWorlds[world.uid] = arrayOf(world.name, world.key.toString(), world.uid.toString())

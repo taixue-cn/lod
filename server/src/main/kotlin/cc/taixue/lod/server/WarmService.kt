@@ -23,6 +23,9 @@ import org.bukkit.event.world.WorldUnloadEvent
 
 /** Server-owned prewarming scans saved terrain; it never generates unexplored chunks. */
 class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
+    /** Main-thread snapshot; scanning does not invent an estimated total. */
+    data class Status(val state: String, val completedChunks: Long, val failedChunks: Long)
+
     private data class Key(val world: UUID, val x: Int, val z: Int)
 
     private class Job(val world: World, val protocols: Set<String>, val region: Path) {
@@ -73,6 +76,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     }
 
     private fun auto(world: World) {
+        if (plugin.config.getBoolean("management.enabled", false)) return
         val settings = settings(world)
         val enabled =
             if (settings?.contains("enabled") == true) settings.getBoolean("enabled")
@@ -98,12 +102,26 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     fun idle(): Boolean = active == 0 && unloads.isEmpty() && unloadDh.isEmpty()
 
-    fun start(world: World): Boolean {
+    fun start(world: World, requestedProtocols: Set<String>? = null): Boolean {
         if (!plugin.worldAccess.cacheAllowed(world.uid)) return false
         val old = jobs[world.uid]
         if (old != null && !old.finished) return false
-        jobs[world.uid] = Job(world, protocols(world), region(world))
+        val selected = requestedProtocols ?: protocols(world)
+        require(selected.isNotEmpty() && setOf("voxy", "dh").containsAll(selected))
+        jobs[world.uid] = Job(world, selected, region(world))
         return true
+    }
+
+    fun stop(world: UUID): Boolean {
+        unloads.keys.removeIf { it.world == world }
+        unloadDh.removeIf { it.world == world }
+        return jobs.remove(world) != null
+    }
+
+    fun status(world: UUID): Status {
+        val job = jobs[world] ?: return Status("OFF", 0, 0)
+        val state = if (!job.finished) "RUNNING" else if (job.errors > 0) "FAILED" else "COMPLETED"
+        return Status(state, job.done, job.errors)
     }
 
     private fun region(world: World): Path {
@@ -272,7 +290,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             if (target !in setOf("all", world.name, world.uid.toString())) continue
             if (action == "start") {
                 if (start(world)) changed++
-            } else if (jobs.remove(world.uid) != null) changed++
+            } else if (stop(world.uid)) changed++
         }
         sender.sendMessage("Prewarm $action: $changed worlds")
         return true

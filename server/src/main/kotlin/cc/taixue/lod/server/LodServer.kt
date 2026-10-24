@@ -32,6 +32,10 @@ class LodServer : JavaPlugin() {
     private var proxy: PluginMessageProxy? = null
     private var worldEdit: WorldEditInvalidation? = null
 
+    @Volatile
+    var managedWorlds: ManagedWorlds? = null
+        private set
+
     override fun onEnable() {
         check(server.pluginManager.getPlugin("ArchLOD") == null) {
             "Remove the old ArchLOD plugin jar before starting LodServer; data was not moved."
@@ -57,6 +61,7 @@ class LodServer : JavaPlugin() {
         voxyService = VoxyService(this, worldAccess).also { it.start() }
         cacheManager = CacheManager(this)
         warmService = WarmService(this)
+        reloadManagement()
         if (
             server.pluginManager.getPlugin("WorldEdit") != null ||
                 server.pluginManager.getPlugin("FastAsyncWorldEdit") != null
@@ -85,6 +90,7 @@ class LodServer : JavaPlugin() {
     }
 
     override fun onDisable() {
+        managedWorlds?.close()
         if (::warmService.isInitialized) warmService.close()
         if (::cacheManager.isInitialized) cacheManager.close()
         worldEdit?.close()
@@ -103,7 +109,22 @@ class LodServer : JavaPlugin() {
         dhSupport.config.set("check_for_updates", false)
         if (::worldAccess.isInitialized) worldAccess.refreshPolicy()
         if (::cacheManager.isInitialized) cacheManager.reload()
-        if (::warmService.isInitialized) warmService.reload()
+        if (::warmService.isInitialized) {
+            reloadManagement()
+            warmService.reload()
+        }
+    }
+
+    private fun reloadManagement() {
+        managedWorlds?.close()
+        managedWorlds = null
+        if (config.getBoolean("management.enabled", false)) {
+            try {
+                managedWorlds = ManagedWorlds(this)
+            } catch (_: IllegalArgumentException) {
+                logger.warning("LOD management configuration invalid; world access remains denied")
+            }
+        }
     }
 
     fun getWorld(name: String): World? =
