@@ -43,11 +43,16 @@ class Fixture : JavaPlugin(), Listener {
             world.getBlockAt(64, 64, 64).type =
                 if (world == secret) Material.DIAMOND_BLOCK else Material.GOLD_BLOCK
         }
+        if (System.getProperty("lod.fixture.large-radius") == "true") {
+            publicWorld.getBlockAt(16000, 64, 0).type = Material.GOLD_BLOCK
+        }
         server.pluginManager.registerEvents(this, this)
         getCommand("lodfixture")!!.setExecutor { sender, _, _, args ->
             if (sender !is Player || args.size != 1) return@setExecutor false
             val attachment = attachments[sender.uniqueId] ?: return@setExecutor false
             when (args[0]) {
+                "radius-small" -> lod().config.set("lod.radius-chunks", 64)
+                "radius-large" -> lod().config.set("lod.radius-chunks", 1024)
                 "cachetest" -> CacheFixture(this, lod()).start()
                 "revoke" ->
                     attachment.setPermission("multiverse.access.${sender.world.name}", false)

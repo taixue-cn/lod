@@ -2,6 +2,7 @@ package cc.taixue.lod.server
 
 import cc.taixue.lod.core.ColumnCache
 import cc.taixue.lod.core.ColumnValidation
+import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.SessionGate
 import cc.taixue.lod.core.Wire
 import dev.vox.lss.common.wire.WireSectionCursor
@@ -44,6 +45,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
         val wants = linkedMapOf<Long, Long>()
         var receivedTick = 0L
         var received = 0
+        var configuredRadius = 0
     }
 
     private val peers = linkedMapOf<UUID, Peer>()
@@ -161,10 +163,11 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                 .bool(false)
                 .varInt(Bukkit.getUnsafe().dataVersion)
         if (peer.capabilities and 8 != 0) output.varInt(0)
+        peer.configuredRadius = radius()
         raw.send(player, CONFIG, output.result())
     }
 
-    private fun radius() = plugin.config.getInt("lod.radius-chunks", 128).coerceIn(8, 512)
+    private fun radius() = LodLimits.radius(plugin.config.getInt("lod.radius-chunks", 128))
 
     private fun revision(key: ColumnCache.Key): Long = revisions[key] ?: 0L
 
@@ -184,7 +187,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                 continue
             }
             val current = access.issue(peer.player, player.world.uid)
-            if (peer.lease != current) {
+            if (peer.lease != current || peer.configuredRadius != radius()) {
                 peer.lease = current
                 peer.wants.clear()
                 config(player, peer, current != null)

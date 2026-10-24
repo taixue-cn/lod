@@ -1,5 +1,7 @@
 package cc.taixue.lod.client
 
+import cc.taixue.lod.core.LodLimits
+import cc.taixue.lod.core.RequestWindow
 import cc.taixue.lod.core.Wire
 import kotlin.math.abs
 import kotlin.math.ceil
@@ -22,7 +24,8 @@ import org.slf4j.LoggerFactory
 class LodClient : ClientModInitializer {
     private val types = mutableMapOf<String, CustomPacketPayload.Type<Frame>>()
     private val timestamps = linkedMapOf<Long, Long>()
-    private val pending = mutableMapOf<Long, Long>()
+    private val requests = RequestWindow()
+    private val pending = requests.pending
     private var bridge: VoxyBridge? = null
     private lateinit var exchange: CacheExchange
     private lateinit var preferences: WorldPreferences
@@ -147,10 +150,16 @@ class LodClient : ClientModInitializer {
         val playerZ = player.chunkPosition().z
         val radius = minOf(distance, preferences.radius())
         val total = (radius * 2 + 1) * (radius * 2 + 1)
-        val wants = mutableListOf<Long>()
         val now = System.currentTimeMillis()
+        // Retire old-center and newly loaded vanilla chunks before allocating more requests.
+        pending.keys.removeIf {
+            abs(playerX - Wire.x(it)) > radius ||
+                abs(playerZ - Wire.z(it)) > radius ||
+                world.chunkSource.hasChunk(Wire.x(it), Wire.z(it))
+        }
+        val wants = requests.retries(now, 16).toMutableList()
         for (checked in 0 until 512) {
-            if (wants.size >= 16) break
+            if (wants.size >= 16 || requests.available <= 0) break
             if (cursor >= total) cursor = 0
             val offset = spiral(cursor++)
             val x = playerX + offset[0]
@@ -160,12 +169,12 @@ class LodClient : ClientModInitializer {
             // Only actual vanilla chunks are excluded, otherwise that gap never gets LOD requests.
             if (world.chunkSource.hasChunk(x, z)) continue
             val position = Wire.pack(x, z)
-            if (now - (pending[position] ?: 0L) < 15000) continue
+            if (position in pending) continue
             val previous = timestamps[position]
             if (previous != null && now - previous < 60000) continue
+            if (!requests.claim(position, now)) continue
             exchange.consider(x, z)
             wants += position
-            pending[position] = now
         }
         if (wants.isNotEmpty()) {
             val output = Wire.Writer().varInt(wants.size)
@@ -173,7 +182,6 @@ class LodClient : ClientModInitializer {
             send(REQUEST, output.result())
         }
         while (timestamps.size > 150000) timestamps.remove(timestamps.keys.first())
-        if (pending.size > 20000) pending.entries.removeIf { now - it.value > 15000 }
     }
 
     private fun receive(channel: String, data: ByteArray) {
@@ -190,7 +198,7 @@ class LodClient : ClientModInitializer {
             if (channel == "lss:session_config") {
                 if (reader.varInt() != 20) return
                 enabled = reader.bool()
-                distance = reader.varInt().coerceIn(8, 128)
+                distance = LodLimits.radius(reader.varInt())
                 reader.bool()
                 if (reader.remaining() > 0) reader.varInt()
                 if (reader.remaining() > 0) reader.varInt()

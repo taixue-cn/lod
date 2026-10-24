@@ -1,5 +1,6 @@
 package cc.taixue.lod.server
 
+import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.SessionGate
 import cc.taixue.lod.core.WorldPolicy
 import java.util.UUID
@@ -117,7 +118,7 @@ class WorldAccess(private val plugin: LodServer) : Listener {
     fun inRange(lease: SessionGate.Lease?, chunkX: Long, chunkZ: Long): Boolean {
         if (!valid(lease) || abs(chunkX) > 1_875_000 || abs(chunkZ) > 1_875_000) return false
         val player = Bukkit.getPlayer(lease!!.player) ?: return false
-        val radius = plugin.config.getInt("lod.radius-chunks", 128).coerceIn(8, 512)
+        val radius = LodLimits.radius(plugin.config.getInt("lod.radius-chunks", 128))
         val x = (player.location.blockX shr 4).toLong()
         val z = (player.location.blockZ shr 4).toLong()
         return abs(x - chunkX) <= radius && abs(z - chunkZ) <= radius

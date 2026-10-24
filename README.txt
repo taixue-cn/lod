@@ -49,7 +49,7 @@ LodServer 0.2.0 — ARCH 共享远景缓存
     /lodc worlds remove current
   个人配置按服务器地址保存在 config/taixue-lod-worlds.json，只能缩小服务器
   许可范围。建议用 current 添加准确的维度 key。下载距离取服务器上限
-  lod.radius-chunks 与个人 radius；个人默认 64 chunks，可选 8～128。
+  lod.radius-chunks 与个人 radius；个人默认 64 chunks，可选 8～1024。
   撤权可以阻止后续下载，无法删除玩家以前已经合法获得的本地缓存。
 
 客户端缓存回传
@@ -185,3 +185,10 @@ Paper 26.3 服务端版本
   构建：cd server-26.3 && ./gradlew --no-daemon build（Java 25）。
 
 排查游戏远景缺块：在客户端输入 `/lodc status` 查看当前世界的握手、服务器开关、个人设置、接收／提交 Voxy 队列计数与错误数。该命令也将状态写入客户端日志；提交队列不等于 Voxy 已完成渲染。计数在换世界或重连时清零。
+
+大范围游戏远景
+  /lodc radius 1000 设置个人下载半径为 1000 区块（16000 方块）。
+  管理员须将 lod.radius-chunks 设为 1000 或更大，再 /lod reload；有效范围取两者较小值。
+  更新后的服务端和客户端最高支持 1024 区块，默认值仍为服务端 128／客户端 64。
+  请求采用最多 64 个未完成区块的窗口并重试超时请求，范围扩大不提高服务器限速。
+  大范围首次下载逐步完成；此指令不修改 Voxy 自己的渲染距离，也不生成新地图区块。

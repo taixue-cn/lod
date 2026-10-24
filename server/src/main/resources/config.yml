@@ -255,6 +255,7 @@ lod:
   worlds:
     mode: blacklist
     entries: []
+  # Horizontal download radius in chunks (8..1024), independent of vanilla view distance.
   radius-chunks: 128
   columns-per-tick: 2
   max-queued-per-player: 256

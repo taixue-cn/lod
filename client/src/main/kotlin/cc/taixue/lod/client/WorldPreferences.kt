@@ -1,5 +1,6 @@
 package cc.taixue.lod.client
 
+import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.Wire
 import cc.taixue.lod.core.WorldPolicy
 import com.google.gson.GsonBuilder
@@ -64,9 +65,8 @@ internal class WorldPreferences(private val diagnostics: () -> List<String>) {
     }
 
     fun radius(): Int =
-        (if (current().has("radiusChunks")) current().get("radiusChunks").asInt else 64).coerceIn(
-            8,
-            128,
+        LodLimits.radius(
+            if (current().has("radiusChunks")) current().get("radiusChunks").asInt else 64
         )
 
     fun frame(): ByteArray {
@@ -133,16 +133,23 @@ internal class WorldPreferences(private val diagnostics: () -> List<String>) {
                                 1
                             }
                             .then(
-                                argument("chunks", IntegerArgumentType.integer(8, 128)).executes {
-                                    current()
-                                        .addProperty(
-                                            "radiusChunks",
-                                            IntegerArgumentType.getInteger(it, "chunks"),
-                                        )
-                                    save()
-                                    say("LOD download radius: ${radius()} chunks")
-                                    1
-                                }
+                                argument(
+                                        "chunks",
+                                        IntegerArgumentType.integer(
+                                            LodLimits.MIN_RADIUS_CHUNKS,
+                                            LodLimits.MAX_RADIUS_CHUNKS,
+                                        ),
+                                    )
+                                    .executes {
+                                        current()
+                                            .addProperty(
+                                                "radiusChunks",
+                                                IntegerArgumentType.getInteger(it, "chunks"),
+                                            )
+                                        save()
+                                        say("LOD download radius: ${radius()} chunks")
+                                        1
+                                    }
                             )
                     )
                     .then(

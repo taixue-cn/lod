@@ -6,6 +6,7 @@ from pathlib import Path
 p=argparse.ArgumentParser()
 p.add_argument('--work-dir',type=Path,required=True)
 p.add_argument('--minecraft-protocol',type=Path,required=True)
+p.add_argument('--large-radius',action='store_true')
 p.add_argument('--legacy-data',action='store_true')
 p.add_argument('--via-jar',type=Path)
 p.add_argument('--server-version',choices=['1.21.4','26.3'],default='1.21.4')
@@ -40,6 +41,7 @@ if a.worldedit:
  (root/'plugins/FastAsyncWorldEdit').mkdir()
  (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent"\n')
 cfg=project.joinpath('server/src/main/resources/config.yml').read_text().replace('upload:\n  enabled: false','upload:\n  enabled: true').replace('  allowed-players: []','  allowed-players: ["*"]').replace('  blocked-players: []','  blocked-players: ["LODBlocked"]').replace('  cooldown-seconds: 5','  cooldown-seconds: 1').replace('  refresh-on-unload: true','  refresh-on-unload: false')
+if a.large_radius:cfg=cfg.replace('  radius-chunks: 128','  radius-chunks: 1024')
 data=root/('plugins/ArchLOD' if a.legacy_data else 'plugins/LodServer')
 data.mkdir();(data/'config.yml').write_text(cfg)
 if a.legacy_data:(data/'migration-marker.txt').write_text('existing cache/config directory')
@@ -70,7 +72,7 @@ names=['LODYes','LODNo','LODBlocked','LODVanilla','LODNative']
 root.joinpath('whitelist.json').write_text(json.dumps([{'name':n,'uuid':str(uuid.UUID(bytes=hashlib.md5(('OfflinePlayer:'+n).encode()).digest(),version=3))} for n in names]))
 java=shutil.which('java');report={'production_services':False,'server_version':a.server_version,'port':port}
 with root.joinpath('console.log').open('w') as log:
- server=subprocess.Popen([java,'-Xms256m','-Xmx1536m','-XX:ActiveProcessorCount=2','-Dterminal.jline=false','-Dterminal.ansi=false','-jar','server.jar','--nogui'],cwd=root,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True)
+ server=subprocess.Popen([java,'-Xms256m','-Xmx1536m','-XX:ActiveProcessorCount=2','-Dlod.fixture.large-radius='+str(a.large_radius).lower(),'-Dterminal.jline=false','-Dterminal.ansi=false','-jar','server.jar','--nogui'],cwd=root,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True)
  try:
   deadline=time.monotonic()+180
   while time.monotonic()<deadline and server.poll() is None:
@@ -107,7 +109,7 @@ with root.joinpath('console.log').open('w') as log:
    report['native']=json.loads(root.joinpath('native.json').read_text())
    if result.returncode or report['native'].get('status')!='PASS':raise RuntimeError('native client verification failed')
   else:
-   result=subprocess.run(['node',str(project/'scripts/protocol-matrix.cjs'),str(a.minecraft_protocol.resolve()),str(port),str(root/'matrix.json')]+(['worldedit'] if a.worldedit else [])+(['cache'] if a.cache_tests else []),cwd=root,timeout=300,text=True,capture_output=True,env=dict(os.environ,ARCH_LOD_SERVER_VERSION=a.server_version))
+   result=subprocess.run(['node',str(project/'scripts/protocol-matrix.cjs'),str(a.minecraft_protocol.resolve()),str(port),str(root/'matrix.json')]+(['worldedit'] if a.worldedit else [])+(['cache'] if a.cache_tests else []),cwd=root,timeout=300,text=True,capture_output=True,env=dict(os.environ,ARCH_LOD_SERVER_VERSION=a.server_version,ARCH_LOD_LARGE_RADIUS=str(a.large_radius)))
    root.joinpath('clients.log').write_text(result.stdout+result.stderr)
    report.update({'client_returncode':result.returncode,'client_stdout':result.stdout[-2000:]})
    if result.returncode:raise RuntimeError(result.stderr[-2000:] or result.stdout[-2000:])
