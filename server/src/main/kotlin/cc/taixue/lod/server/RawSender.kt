@@ -2,9 +2,15 @@ package cc.taixue.lod.server
 
 import org.bukkit.entity.Player
 
-/** Paper 1.21.4 payload egress; Fabric clients need not send minecraft:register. */
+/** Paper 1.21.4 / 26.3 payload egress; Fabric clients need not send minecraft:register. */
 class RawSender @Throws(ReflectiveOperationException::class) constructor() {
-    private val identifier = Class.forName("net.minecraft.resources.ResourceLocation")
+    // Minecraft 26.3 renamed ResourceLocation; the wire channel names are unchanged.
+    private val identifier =
+        try {
+            Class.forName("net.minecraft.resources.Identifier")
+        } catch (_: ClassNotFoundException) {
+            Class.forName("net.minecraft.resources.ResourceLocation")
+        }
     private val parse = identifier.getMethod("parse", String::class.java)
     private val payload =
         Class.forName("net.minecraft.network.protocol.common.custom.DiscardedPayload")

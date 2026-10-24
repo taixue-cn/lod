@@ -3,7 +3,7 @@ LodServer / LodClient — 服务端命令 /lod（兼容 /lods），客户端命�
 LodServer 0.2.0 — ARCH 共享远景缓存
 
 适配目标
-  服务端：arch 启动脚本实际使用的 Paper 1.21.4-232 / Java 21。
+  服务端：Paper 1.21.4 / Java 21 或 Paper 26.3 / Java 25，各有独立安装包。
   客户端：Minecraft 1.21.11 / Fabric，Voxy 0.2.16-beta，DH 3.3.3。
   跨版本连接依赖 arch 现有 ViaVersion。其它服务端版本尚未验证。
   服务端使用 LSS v20 与 DH v16 两套协议。Voxy 原版需要额外的接收桥接
@@ -176,3 +176,10 @@ Minecraft 26.3 Fabric client: see client-26.3/README.txt. This is a separate Jav
   /lod warm status、/lod reload。个人设置继续用 /lodc，不在客户端注册
   /lod 根命令，避免拦截服务端子命令。/lodc worlds 为个人下载偏好；
   /lod lodworlds 为服务端 LOD 世界名单，/lod worlds 为 服务端世界列表。
+
+Paper 26.3 服务端版本
+  使用 Java 25，安装 LodServer-0.2.0+mc26.3.jar。旧版 Paper 1.21.4 使用
+  LodServer-0.2.0.jar / Java 21。同一服务器只安装其中一个版本。
+  名称 LodServer、包名 cc.taixue.lod.server、/lod 与 /lods 指令、配置目录、
+  权限规则与缓存协议保持一致；世界格式由对应 Minecraft 服务端管理。
+  构建：cd server-26.3 && ./gradlew --no-daemon build（Java 25）。

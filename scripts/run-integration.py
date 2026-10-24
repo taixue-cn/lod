@@ -8,6 +8,7 @@ p.add_argument('--work-dir',type=Path,required=True)
 p.add_argument('--minecraft-protocol',type=Path,required=True)
 p.add_argument('--legacy-data',action='store_true')
 p.add_argument('--via-jar',type=Path)
+p.add_argument('--server-version',choices=['1.21.4','26.3'],default='1.21.4')
 p.add_argument('--client-version',choices=['1.21.11','26.3'],default='1.21.11')
 p.add_argument('--native-mode',choices=['voxy','fallback','dh'])
 p.add_argument('--mods',type=Path)
@@ -23,13 +24,19 @@ root.joinpath('plugins/bStats').mkdir(parents=True)
 root.joinpath('plugins/bStats/config.yml').write_text('enabled: false\n')
 for name in ['libraries','cache']:
  shutil.copytree(runtime/name,root/name)
-shutil.copytree(runtime/'versions/1.21.4',root/'versions/1.21.4')
-shutil.copy2(runtime/'paper-1.21.4-232.jar',root/'server.jar')
-for src in [project/'server/build/libs/LodServer-0.2.0.jar',project/'server/build/libs/LodServerFixture.jar',(a.via_jar or runtime/'plugins/ViaVersion-5.7.0.jar')]:
+modern=a.server_version=='26.3'
+shutil.copytree(runtime/'versions'/a.server_version,root/'versions'/a.server_version)
+shutil.copy2(runtime/('cores/paper-26.3-218.jar' if modern else 'paper-1.21.4-232.jar'),root/'server.jar')
+server_module=project/('server-26.3' if modern else 'server')
+plugin_jar='LodServer-0.2.0+mc26.3.jar' if modern else 'LodServer-0.2.0.jar'
+via=a.via_jar or runtime/('plugins/ViaVersion-5.12.1.jar' if modern else 'plugins/ViaVersion-5.7.0.jar')
+plugins=[server_module/'build/libs'/plugin_jar,server_module/'build/libs/LodServerFixture.jar',via]
+if modern:plugins.append(runtime/'plugins/ViaBackwards-5.12.1.jar')
+for src in plugins:
  if a.without_server_plugin and src.name.startswith('LodServer'):continue
  shutil.copy2(src,root/'plugins'/src.name)
 if a.worldedit:
- shutil.copy2(runtime/'plugins/FastAsyncWorldEdit-Paper-2.15.1-SNAPSHOT-1282.jar',root/'plugins/FastAsyncWorldEdit.jar')
+ shutil.copy2(runtime/('plugins/FastAsyncWorldEdit-Paper-2.16.1.jar' if modern else 'plugins/FastAsyncWorldEdit-Paper-2.15.1-SNAPSHOT-1282.jar'),root/'plugins/FastAsyncWorldEdit.jar')
  (root/'plugins/FastAsyncWorldEdit').mkdir()
  (root/'plugins/FastAsyncWorldEdit/config.yml').write_text('extent:\n  allowed-plugins:\n  - "cc.taixue.lod.server.WorldEditInvalidation$TrackingExtent"\n')
 cfg=project.joinpath('server/src/main/resources/config.yml').read_text().replace('upload:\n  enabled: false','upload:\n  enabled: true').replace('  allowed-players: []','  allowed-players: ["*"]').replace('  blocked-players: []','  blocked-players: ["LODBlocked"]').replace('  cooldown-seconds: 5','  cooldown-seconds: 1').replace('  refresh-on-unload: true','  refresh-on-unload: false')
@@ -61,7 +68,7 @@ network-compression-threshold=256
 root.joinpath('bukkit.yml').write_text('settings:\n  allow-end: false\n')
 names=['LODYes','LODNo','LODBlocked','LODVanilla','LODNative']
 root.joinpath('whitelist.json').write_text(json.dumps([{'name':n,'uuid':str(uuid.UUID(bytes=hashlib.md5(('OfflinePlayer:'+n).encode()).digest(),version=3))} for n in names]))
-java=shutil.which('java');report={'production_services':False,'port':port}
+java=shutil.which('java');report={'production_services':False,'server_version':a.server_version,'port':port}
 with root.joinpath('console.log').open('w') as log:
  server=subprocess.Popen([java,'-Xms256m','-Xmx1536m','-XX:ActiveProcessorCount=2','-Dterminal.jline=false','-Dterminal.ansi=false','-jar','server.jar','--nogui'],cwd=root,stdin=subprocess.PIPE,stdout=log,stderr=subprocess.STDOUT,text=True)
  try:
@@ -100,7 +107,7 @@ with root.joinpath('console.log').open('w') as log:
    report['native']=json.loads(root.joinpath('native.json').read_text())
    if result.returncode or report['native'].get('status')!='PASS':raise RuntimeError('native client verification failed')
   else:
-   result=subprocess.run(['node',str(project/'scripts/protocol-matrix.cjs'),str(a.minecraft_protocol.resolve()),str(port),str(root/'matrix.json')]+(['worldedit'] if a.worldedit else [])+(['cache'] if a.cache_tests else []),cwd=root,timeout=300,text=True,capture_output=True)
+   result=subprocess.run(['node',str(project/'scripts/protocol-matrix.cjs'),str(a.minecraft_protocol.resolve()),str(port),str(root/'matrix.json')]+(['worldedit'] if a.worldedit else [])+(['cache'] if a.cache_tests else []),cwd=root,timeout=300,text=True,capture_output=True,env=dict(os.environ,ARCH_LOD_SERVER_VERSION=a.server_version))
    root.joinpath('clients.log').write_text(result.stdout+result.stderr)
    report.update({'client_returncode':result.returncode,'client_stdout':result.stdout[-2000:]})
    if result.returncode:raise RuntimeError(result.stderr[-2000:] or result.stdout[-2000:])

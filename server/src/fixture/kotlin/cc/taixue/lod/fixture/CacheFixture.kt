@@ -15,7 +15,6 @@ import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.bukkit.Bukkit
-import org.bukkit.GameRule
 import org.bukkit.Location
 import org.bukkit.Material
 import org.bukkit.World
@@ -161,16 +160,10 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
 
     private fun run() {
         val first = main {
-            WorldCreator("cache-a")
-                .keepSpawnInMemory(false)
-                .generator(TinyGenerator())
-                .createWorld()!!
+            WorldCreator("cache-a").generator(TinyGenerator()).createWorld()!!
         }
         val second = main {
-            WorldCreator("cache-b")
-                .keepSpawnInMemory(false)
-                .generator(TinyGenerator())
-                .createWorld()!!
+            WorldCreator("cache-b").generator(TinyGenerator()).createWorld()!!
         }
         main {
             lod.config.set("cache.refresh-on-unload", false)
@@ -179,8 +172,7 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
             lod.config.set("lod.worlds.entries", emptyList<String>())
             lod.worldAccess.refreshPolicy()
             for (world in listOf(first, second)) {
-                world.setGameRule(GameRule.SPAWN_CHUNK_RADIUS, 0)
-                world.setKeepSpawnInMemory(false)
+                disableSpawnChunks(world)
                 world.getBlockAt(64, 64, 64).type = Material.GOLD_BLOCK
                 world.save()
                 target += world.uid

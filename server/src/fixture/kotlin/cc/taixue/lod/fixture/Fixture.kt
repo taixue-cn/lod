@@ -37,7 +37,7 @@ class Fixture : JavaPlugin(), Listener {
                 .createWorld()!!
         for (world in listOf(publicWorld, secret)) {
             world.setGameRule(GameRule.DO_MOB_SPAWNING, false)
-            world.setGameRule(GameRule.SPAWN_CHUNK_RADIUS, 0)
+            disableSpawnChunks(world)
             world.setSpawnLocation(0, 64, 0)
             for (x in 4 until 8) for (z in 4 until 8) world.getChunkAt(x, z)
             world.getBlockAt(64, 64, 64).type =
@@ -99,4 +99,19 @@ class Fixture : JavaPlugin(), Listener {
         attachment.setPermission("multiverse.access.${publicWorld.name}", player.name != "LODNo")
         attachment.setPermission("multiverse.access.${secret.name}", false)
     }
+}
+
+/** Spawn chunk tickets were removed before 26.3; retain the old fixture setup on 1.21.4. */
+internal fun disableSpawnChunks(world: World) {
+    @Suppress("UNCHECKED_CAST")
+    val radius =
+        try {
+            GameRule::class.java.getField("SPAWN_CHUNK_RADIUS").get(null) as GameRule<Int>
+        } catch (_: NoSuchFieldException) {
+            return
+        }
+    world.setGameRule(radius, 0)
+    world.javaClass
+        .getMethod("setKeepSpawnInMemory", Boolean::class.javaPrimitiveType)
+        .invoke(world, false)
 }

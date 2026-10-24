@@ -25,6 +25,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '25'
+      - name: Test and build Paper 26.3 server
+        working-directory: server-26.3
+        run: ./gradlew --no-daemon build
       - name: Test and build Minecraft 26.3 client
         working-directory: client-26.3
         run: ./gradlew --no-daemon build
@@ -33,6 +36,7 @@ jobs:
         run: |
           mkdir release
           cp server/build/libs/LodServer-0.2.0.jar release/LodServer-0.2.0.jar
+          cp server-26.3/build/libs/LodServer-0.2.0+mc26.3.jar release/LodServer-0.2.0+mc26.3.jar
           cp client/build/libs/LodClient-0.2.0.jar release/LodClient-0.2.0+mc1.21.11.jar
           cp client-26.3/build/libs/LodClient-0.2.0+mc26.3.jar release/LodClient-0.2.0+mc26.3.jar
           cp README.txt LICENSE release/
