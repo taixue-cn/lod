@@ -34,6 +34,10 @@ class LodClient : ClientModInitializer {
     private var ticks = 0
     private var cursor = 0
     private var errors = 0L
+    private var sessionReceived = false
+    private var receivedColumns = 0L
+    private var queuedColumns = 0L
+    private var ignoredColumns = 0L
 
     override fun onInitializeClient() {
         val loader = FabricLoader.getInstance()
@@ -80,7 +84,7 @@ class LodClient : ClientModInitializer {
                 context.client().execute { receive(channel, frame.bytes) }
             }
         }
-        preferences = WorldPreferences()
+        preferences = WorldPreferences(::status)
         exchange = CacheExchange(::send)
         ClientPlayConnectionEvents.JOIN.register { _, _, _ -> reset() }
         ClientPlayConnectionEvents.DISCONNECT.register { _, _ -> reset() }
@@ -91,6 +95,8 @@ class LodClient : ClientModInitializer {
     private fun reset() {
         if (::exchange.isInitialized) exchange.reset()
         enabled = false
+        sessionReceived = false
+        resetCounters()
         handshook = false
         lastPreference = null
         level = null
@@ -117,6 +123,7 @@ class LodClient : ClientModInitializer {
             timestamps.clear()
             pending.clear()
             cursor = 0
+            resetCounters()
             if (handshook) send("taixue:lod_hello", Wire.Writer().varInt(1).result())
         }
         if (
@@ -149,12 +156,9 @@ class LodClient : ClientModInitializer {
             val x = playerX + offset[0]
             val z = playerZ + offset[1]
             if (abs(offset[0]) > radius || abs(offset[1]) > radius) continue
-            // Vanilla owns nearby chunks; this receiver supplements distant terrain only.
-            if (
-                abs(offset[0]) <= client.options.effectiveRenderDistance &&
-                    abs(offset[1]) <= client.options.effectiveRenderDistance
-            )
-                continue
+            // The server may send fewer chunks than the configured client view distance.
+            // Only actual vanilla chunks are excluded, otherwise that gap never gets LOD requests.
+            if (world.chunkSource.hasChunk(x, z)) continue
             val position = Wire.pack(x, z)
             if (now - (pending[position] ?: 0L) < 15000) continue
             val previous = timestamps[position]
@@ -191,6 +195,8 @@ class LodClient : ClientModInitializer {
                 if (reader.remaining() > 0) reader.varInt()
                 if (reader.remaining() > 0) reader.varInt()
                 reader.end()
+                sessionReceived = true
+                logger.info("LOD session config received: enabled={}, radius={}", enabled, distance)
                 if (!enabled) pending.clear()
                 return
             }
@@ -198,6 +204,7 @@ class LodClient : ClientModInitializer {
             if (!enabled || !preferences.allows() || Minecraft.getInstance().level !== world) return
             when (channel) {
                 "lss:voxel_column" -> {
+                    receivedColumns++
                     val x = reader.i32()
                     val z = reader.i32()
                     val dimension = reader.utf(256)
@@ -206,13 +213,20 @@ class LodClient : ClientModInitializer {
                     val codec = reader.u8()
                     val body = reader.bytes(Wire.MAX_FRAME)
                     reader.end()
-                    if (codec != 0 || world.dimension().identifier().toString() != dimension) return
+                    if (codec != 0 || world.dimension().identifier().toString() != dimension) {
+                        ignoredColumns++
+                        return
+                    }
                     val position = Wire.pack(x, z)
-                    if (position !in pending) return
+                    if (position !in pending) {
+                        ignoredColumns++
+                        return
+                    }
                     if (bridge?.ingest(world, x, z, body) == true) {
+                        queuedColumns++
                         timestamps[position] = stamp
                         pending.remove(position)
-                    }
+                    } else ignoredColumns++
                 }
                 "lss:batch_response" -> {
                     repeat(reader.count(4096)) {
@@ -239,6 +253,27 @@ class LodClient : ClientModInitializer {
         } catch (error: RuntimeException) {
             warn(error)
         }
+    }
+
+    /**
+     * Client-thread counters describe receipt and enqueueing, not Voxy's asynchronous render
+     * completion.
+     */
+    private fun status(): List<String> =
+        listOf(
+                "LOD 世界: ${level?.dimension()?.identifier() ?: "未进入世界"}",
+                "Voxy 接口: ${bridge != null}；握手已发送: $handshook；服务器已应答: $sessionReceived",
+                "服务器允许下载: $enabled；个人世界设置允许: ${preferences.allows()}",
+                "本世界收到模型: $receivedColumns；已提交 Voxy 队列: $queuedColumns；忽略: $ignoredColumns；错误: $errors",
+                "等待响应: ${pending.size}；下载半径: ${minOf(distance, preferences.radius())} 区块",
+            )
+            .also { lines -> lines.forEach { logger.info(it) } }
+
+    private fun resetCounters() {
+        receivedColumns = 0
+        queuedColumns = 0
+        ignoredColumns = 0
+        errors = 0
     }
 
     private fun warn(error: Exception) {

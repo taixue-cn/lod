@@ -69,7 +69,9 @@ class NativeClientFixture : ClientModInitializer {
                         }
                     "voxy" -> {
                         bridgeDebug()
-                        client.options.renderDistance().set(2)
+                        // The server sends radius 2; target (4,4) is inside the client's configured
+                        // radius 12.
+                        client.options.renderDistance().set(12)
                         val read =
                             Class.forName("cc.taixue.lod.client.VoxyCacheReader")
                                 .getDeclaredMethod(
@@ -92,6 +94,15 @@ class NativeClientFixture : ClientModInitializer {
                                 !level.chunkSource.hasChunk(4, 4) &&
                                 acceptedColumn()
                         ) {
+                            val entry = entries().single()
+                            for (name in listOf("receivedColumns", "queuedColumns")) {
+                                val field =
+                                    entry.javaClass.getDeclaredField(name).apply {
+                                        isAccessible = true
+                                    }
+                                check(field.getLong(entry) > 0)
+                            }
+                            check(checkClientCommand(client))
                             finish(
                                 client,
                                 true,
@@ -154,6 +165,7 @@ class NativeClientFixture : ClientModInitializer {
             manager.getMethod("getActiveDispatcher").invoke(null)
                 as CommandDispatcher<FabricClientCommandSource>? ?: return false
         val source = client.connection!!.suggestionsProvider as FabricClientCommandSource
+        check(dispatcher.execute("lodc status", source) == 1)
         check(dispatcher.execute("lodc radius 48", source) == 1)
         val entry = entries().single()
         val preferences =

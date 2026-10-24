@@ -183,3 +183,5 @@ Paper 26.3 服务端版本
   名称 LodServer、包名 cc.taixue.lod.server、/lod 与 /lods 指令、配置目录、
   权限规则与缓存协议保持一致；世界格式由对应 Minecraft 服务端管理。
   构建：cd server-26.3 && ./gradlew --no-daemon build（Java 25）。
+
+排查游戏远景缺块：在客户端输入 `/lodc status` 查看当前世界的握手、服务器开关、个人设置、接收／提交 Voxy 队列计数与错误数。该命令也将状态写入客户端日志；提交队列不等于 Voxy 已完成渲染。计数在换世界或重连时清零。

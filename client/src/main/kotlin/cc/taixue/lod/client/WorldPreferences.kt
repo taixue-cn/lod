@@ -21,7 +21,7 @@ import net.minecraft.network.chat.Component
 /**
  * Per-player, per-server choices; the server's world policy and permissions always take precedence.
  */
-internal class WorldPreferences {
+internal class WorldPreferences(private val diagnostics: () -> List<String>) {
     private val path = FabricLoader.getInstance().configDir.resolve("taixue-lod-worlds.json")
     private var profiles = JsonObject()
 
@@ -120,6 +120,12 @@ internal class WorldPreferences {
         ClientCommandRegistrationCallback.EVENT.register { dispatcher, _ ->
             dispatcher.register(
                 literal("lodc")
+                    .then(
+                        literal("status").executes {
+                            diagnostics().forEach(::say)
+                            1
+                        }
+                    )
                     .then(
                         literal("radius")
                             .executes {

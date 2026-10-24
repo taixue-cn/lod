@@ -57,3 +57,7 @@ Paper 26.3 安装 `LodServer-0.2.0+mc26.3.jar`，旧 Paper 1.21.4 安装 `LodSer
 管理服务使用 `POST` 接收 `{server_id, worlds:[{world_uuid, revision, state, completed_chunks, failed_chunks}]}`，通过 `Authorization: Bearer …` 验证独立服务器身份。返回 `{worlds:[{world_uuid, revision, enabled}]}`，必须覆盖且仅覆盖请求内的 UUID。请求上限为 2048 个世界／1 MiB，响应上限 2 MiB；迟到的响应不延长原请求的 30 秒授权期限。`OFF`、`RUNNING`、`COMPLETED`、`FAILED` 是实际预热状态，没有虚构的扫描总量或百分比。策略变化需要按版本隔离进度回报。
 
 太学 MC Service 的同步路径为 `/v1/internal/lod/sync`，服务器凭据置于 `project.lod.server-tokens.<server-id>`；网页入口为世界项目设置里的“世界地图 → 三维详情 → 游戏远景模型”。修改世界开关需要独立的 `project.capability.manage-lod` 权限，该权限不默认授予任何组；平台管理员通过统一权限服务拥有权限，项目管理员可按需单独授权。观察权限不授予地图浏览或远景管理权限。接入不改变 LSS/DH 缓存格式或客户端协议，因此不要求更换客户端 mod。
+
+排查游戏远景缺块：在客户端输入 `/lodc status` 查看当前世界的握手、服务器开关、个人设置、接收／提交 Voxy 队列计数与错误数。该命令也将状态写入客户端日志；提交队列不等于 Voxy 已完成渲染。计数在换世界或重连时清零。
+
+客户端按实际已加载的原版区块跳过下载，不使用客户端设置视距推断服务器覆盖范围；服务器视距较小时，夹在原版区块与配置视距之间的区域也会请求 LOD。
