@@ -178,6 +178,29 @@ class CacheFixture(private val fixture: JavaPlugin, private val lod: LodServer) 
                 target += world.uid
             }
         }
+        val uniform = main { first.getChunkAt(4, 4).getChunkSnapshot(true, true, false) }
+        val mixed = main {
+            val materials = Material.values().filter { it.isBlock && !it.isAir }.take(600)
+            materials.forEachIndexed { index, material ->
+                first
+                    .getBlockAt(64 + (index and 15), index / 256, 64 + ((index shr 4) and 15))
+                    .setType(material, false)
+            }
+            first.getChunkAt(4, 4).getChunkSnapshot(true, true, false)
+        }
+        EncoderFixture.verify(listOf(uniform, mixed), first.minHeight, first.maxHeight)
+        check(
+            true,
+            "palette encoder matches reference for uniform and global-palette sections, lights, biomes and negative height",
+        )
+        main {
+            repeat(600) { index ->
+                first
+                    .getBlockAt(64 + (index and 15), index / 256, 64 + ((index shr 4) and 15))
+                    .setType(Material.AIR, false)
+            }
+            first.save()
+        }
         config(-1, emptyMap())
         populate(first)
         populate(second)

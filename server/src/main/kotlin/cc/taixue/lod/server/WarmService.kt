@@ -192,8 +192,10 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     }
 
     private fun main(operation: () -> Unit) {
-        if (!closed && plugin.isEnabled)
-            Bukkit.getScheduler().runTask(plugin, Runnable { if (!closed) operation() })
+        if (!closed && plugin.isEnabled) {
+            if (Bukkit.isPrimaryThread()) operation()
+            else Bukkit.getScheduler().runTask(plugin, Runnable { if (!closed) operation() })
+        }
     }
 
     private fun tick() {

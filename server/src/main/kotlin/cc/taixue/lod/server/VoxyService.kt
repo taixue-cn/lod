@@ -49,7 +49,7 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     }
 
     private val peers = linkedMapOf<UUID, Peer>()
-    private val revisions = mutableMapOf<ColumnCache.Key, Long>()
+    private val revisions = java.util.concurrent.ConcurrentHashMap<ColumnCache.Key, Long>()
     private val busy = mutableSetOf<ColumnCache.Key>()
     private val workers =
         ThreadPoolExecutor(
@@ -459,8 +459,10 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
     }
 
     private fun main(operation: () -> Unit) {
-        if (!closed && plugin.isEnabled)
-            Bukkit.getScheduler().runTask(plugin, Runnable { if (!closed) operation() })
+        if (!closed && plugin.isEnabled) {
+            if (Bukkit.isPrimaryThread()) operation()
+            else Bukkit.getScheduler().runTask(plugin, Runnable { if (!closed) operation() })
+        }
     }
 
     @Synchronized
@@ -664,25 +666,16 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
                             System.currentTimeMillis(),
                             ColumnEncoder.encode(snapshot, minimum, maximum),
                         )
-                    main {
-                        if (!access.cacheAllowed(key.world) || revision != revision(key)) {
+                    // Encoding and persistence share one serialized worker; no extra tick or queue
+                    // hop.
+                    if (!access.cacheAllowed(key.world) || revision != revision(key)) {
+                        result.complete(false)
+                    } else {
+                        cache.put(key, entry)
+                        if (revision != revision(key)) {
+                            cache.invalidate(key)
                             result.complete(false)
-                            return@main
-                        }
-                        try {
-                            workers.execute {
-                                try {
-                                    if (access.cacheAllowed(key.world)) {
-                                        cache.put(key, entry)
-                                        result.complete(true)
-                                    } else result.complete(false)
-                                } catch (error: Exception) {
-                                    result.completeExceptionally(error)
-                                }
-                            }
-                        } catch (error: RejectedExecutionException) {
-                            result.completeExceptionally(error)
-                        }
+                        } else result.complete(true)
                     }
                 } catch (error: Exception) {
                     result.completeExceptionally(error)

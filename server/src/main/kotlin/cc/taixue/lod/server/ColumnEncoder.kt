@@ -7,8 +7,36 @@ import org.bukkit.Material
 
 /** Encodes immutable Paper snapshots into LSS's version-neutral v20 body. */
 object ColumnEncoder {
+    private val palettes =
+        java.util.concurrent.ConcurrentHashMap<Class<*>, PaletteSnapshotEncoder>()
+    private val unsupported = java.util.concurrent.ConcurrentHashMap.newKeySet<Class<*>>()
+
+    internal fun palette(snapshot: ChunkSnapshot): PaletteSnapshotEncoder? {
+        val type = snapshot.javaClass
+        if (type in unsupported) return null
+        return try {
+            palettes.computeIfAbsent(type) { PaletteSnapshotEncoder(it) }
+        } catch (error: ReflectiveOperationException) {
+            unsupported += type
+            org.bukkit.Bukkit.getLogger()
+                .warning(
+                    "LOD snapshot palette path unavailable: ${error.javaClass.simpleName}; using Bukkit API"
+                )
+            null
+        }
+    }
+
+    /** Fast palette path for known Paper snapshots, with an API fallback for other runtimes. */
     @JvmStatic
     fun encode(snapshot: ChunkSnapshot, minY: Int, maxY: Int): ByteArray {
+        val encoder = palette(snapshot)
+        if (encoder != null) return encoder.encode(snapshot, minY, maxY)
+        return encodeUsingApi(snapshot, minY, maxY)
+    }
+
+    /** Portable reference path, also used to verify palette output against Bukkit semantics. */
+    @JvmStatic
+    fun encodeUsingApi(snapshot: ChunkSnapshot, minY: Int, maxY: Int): ByteArray {
         val dictionary = linkedMapOf<String, Int>()
         val sections = mutableListOf<WireSectionCursor.WireSection>()
         val identities = mutableMapOf<String, String>()
@@ -74,7 +102,7 @@ object ColumnEncoder {
         return IdentityCodec.canonical(state.substring(0, bracket), properties)
     }
 
-    private fun container(values: IntArray, block: Boolean): WireSectionCursor.WireContainer {
+    internal fun container(values: IntArray, block: Boolean): WireSectionCursor.WireContainer {
         val palette = linkedMapOf<Int, Int>()
         val indices = values.map { palette.getOrPut(it) { palette.size } }.toIntArray()
         val bits =

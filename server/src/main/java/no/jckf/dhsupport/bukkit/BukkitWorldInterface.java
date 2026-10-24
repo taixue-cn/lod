@@ -679,6 +679,9 @@ public class BukkitWorldInterface implements WorldInterface
             return materialRecord.toString();
         }
 
+        String identity = cc.taixue.lod.server.SnapshotStates.identity(this.getChunk(x, z), Coordinates.blockToChunkRelative(x), y, Coordinates.blockToChunkRelative(z));
+        if (identity != null) return identity;
+
         Map<String, String> properties = this.getBlockPropertiesAt(x, y, z);
 
         if (properties.isEmpty()) {
@@ -709,6 +712,9 @@ public class BukkitWorldInterface implements WorldInterface
         if (this.isDummyMode()) {
             return Collections.emptyMap();
         }
+
+        Map<String, String> paletteProperties = cc.taixue.lod.server.SnapshotStates.properties(this.getChunk(x, z), Coordinates.blockToChunkRelative(x), y, Coordinates.blockToChunkRelative(z));
+        if (paletteProperties != null) return paletteProperties;
 
         String dataString = this.getChunk(x, z).getBlockData(Coordinates.blockToChunkRelative(x), y, Coordinates.blockToChunkRelative(z)).getAsString();
 
