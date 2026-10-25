@@ -297,6 +297,11 @@ prewarm:
     max-inflight: 32
     world-max-inflight: 8
     main-thread-millis: 4
+    # Hot-reloaded safety limits. Both region/coverage readers yield when tick health is poor.
+    min-tps: 19.5
+    max-mspt: 40.0
+    # CPU duty per reader; reduces decompression/allocation pressure even with no work in flight.
+    scan-duty-percent: 25
   by_world: {}
   # Example: main-city: {enabled: true, protocols: [voxy, dh]}
 

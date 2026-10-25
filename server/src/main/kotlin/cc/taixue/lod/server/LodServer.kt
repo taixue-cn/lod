@@ -31,6 +31,7 @@ class LodServer : JavaPlugin() {
     private var configLoader: ConfigLoader? = null
     private var proxy: PluginMessageProxy? = null
     private var worldEdit: WorldEditInvalidation? = null
+    private var managementConfiguration: Map<String, Any>? = null
 
     @Volatile
     var managedWorlds: ManagedWorlds? = null
@@ -116,9 +117,15 @@ class LodServer : JavaPlugin() {
     }
 
     private fun reloadManagement() {
+        val settings =
+            config.getConfigurationSection("management")?.getValues(false)?.toMap().orEmpty()
+        val enabled = config.getBoolean("management.enabled", false)
+        // Tuning budgets must not drop permission leases or restart all world scans.
+        if (settings == managementConfiguration && (managedWorlds != null || !enabled)) return
+        managementConfiguration = settings
         managedWorlds?.close()
         managedWorlds = null
-        if (config.getBoolean("management.enabled", false)) {
+        if (enabled) {
             try {
                 managedWorlds = ManagedWorlds(this)
             } catch (_: IllegalArgumentException) {

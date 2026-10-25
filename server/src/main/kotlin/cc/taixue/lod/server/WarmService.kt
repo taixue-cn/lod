@@ -76,6 +76,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
     private val unloadDh = linkedSetOf<Key>()
     private var active = 0
     private var rotation = 0
+    private val budget = PrewarmBudget()
     @Volatile private var closed = false
     private var completed = 0L
     private var failed = 0L
@@ -147,16 +148,23 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         val worldName = world.name
         inventory.execute {
             try {
-                // Count only saved chunks accepted by the same reader as the prewarm queue.
-                // This scan uses a separate I/O worker, so it cannot block generation dispatch.
+                val slice = budget.reader { closed || job.cancelled }
+                // Count the same saved chunks as prewarming; background CPU/allocations still
+                // need a budget even though this worker never blocks the dispatch queue.
+                slice.checkpoint()
                 plugin.voxyService.cache().catalog(worldId).forEach { (key, version) ->
+                    slice.checkpoint()
                     if (key.world == worldId)
                         job.coverage.observe(Wire.pack(key.x, key.z), version, seed = true)
                 }
                 val positions = mutableSetOf<Long>()
                 val reader = SavedChunks(job.region)
                 while (!closed && !job.cancelled && !Thread.currentThread().isInterrupted) {
-                    val chunk = reader.next() ?: break
+                    val chunk =
+                        reader.next {
+                            slice.checkpoint()
+                            true
+                        } ?: break
                     positions += Wire.pack(chunk.x, chunk.z)
                 }
                 if (!closed && !job.cancelled) job.coverage.inventory(positions)
@@ -206,6 +214,13 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private fun tick() {
         if (closed) return
+        budget.tick(
+            plugin.config.getDouble("prewarm.global.min-tps", 19.5),
+            Bukkit.getServer().averageTickTime,
+            plugin.config.getDouble("prewarm.global.max-mspt", 40.0),
+            plugin.config.getInt("prewarm.global.scan-duty-percent", 25),
+        )
+        if (budget.paused) return
         val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 256)
         while (active < capacity && unloads.isNotEmpty()) {
             val iterator = unloads.iterator()
@@ -277,6 +292,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         val worldId = job.world.uid
         reader.execute {
             try {
+                val slice = budget.reader { closed || job.cancelled }
                 val scan = job.scan ?: SavedChunks(job.region).also { job.scan = it }
                 val batch = mutableListOf<Work>()
                 var reused = 0L
@@ -291,6 +307,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                 ) {
                     var candidate: Work? = null
                     val next = scan.next { chunk ->
+                        slice.checkpoint()
                         if (closed || job.cancelled || Thread.currentThread().isInterrupted)
                             throw InterruptedException()
                         if (job.regionX != chunk.regionX || job.regionZ != chunk.regionZ) {
@@ -421,7 +438,8 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             return
         // Beyond the snapshot cap, retain coordinates and read the saved chunk after unload.
         unloads[Key(world.uid, chunk.x, chunk.z)] =
-            if (unloads.size < 256) chunk.getChunkSnapshot(true, true, false) else null
+            if (!budget.paused && unloads.size < 256) chunk.getChunkSnapshot(true, true, false)
+            else null
         unloadDh += Key(world.uid, Math.floorDiv(chunk.x, 4), Math.floorDiv(chunk.z, 4))
     }
 
@@ -453,7 +471,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         }
         if (action == "status") {
             sender.sendMessage(
-                "prewarm active=$active, unload queue=${unloads.size}/${unloadDh.size}, refreshed=$completed, failed=$failed"
+                "prewarm active=$active, paused=${budget.paused}, measured-tps=${"%.2f".format(java.util.Locale.ROOT, budget.tps)}, limit=${plugin.config.getInt("prewarm.global.max-inflight", 32)}, unload queue=${unloads.size}/${unloadDh.size}, refreshed=$completed, failed=$failed"
             )
             jobs.values.forEach {
                 sender.sendMessage(
