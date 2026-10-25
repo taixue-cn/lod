@@ -20,6 +20,8 @@ constructor(
     maxAge: Duration,
     private val maxBytes: Long,
 ) {
+    var quota: CacheQuota? = null
+
     @JvmRecord data class Key(val world: UUID, val x: Int, val z: Int)
 
     @JvmRecord data class Entry(val timestamp: Long, val body: ByteArray)
@@ -137,7 +139,7 @@ constructor(
             }
         } catch (_: IOException) {
             try {
-                Files.deleteIfExists(path)
+                delete(key)
                 publish(key, 0)
             } catch (_: IOException) {
                 // A failed cleanup must not make a corrupt cache entry readable.
@@ -160,15 +162,19 @@ constructor(
                 output.writeInt(value.body.size)
                 output.write(value.body)
             }
-            try {
-                Files.move(
-                    temporary,
-                    target,
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
+            val oldBytes = if (Files.exists(target)) Files.size(target) else 0
+            quota?.reserve(key.world, Files.size(temporary) - oldBytes).use { reservation ->
+                try {
+                    Files.move(
+                        temporary,
+                        target,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING)
+                }
+                reservation?.commit()
             }
             publish(key, version(key))
         } finally {
@@ -179,8 +185,14 @@ constructor(
     @Synchronized
     @Throws(IOException::class)
     fun invalidate(key: Key) {
-        Files.deleteIfExists(path(key))
+        delete(key)
         publish(key, 0)
+    }
+
+    private fun delete(key: Key) {
+        val file = path(key)
+        val bytes = if (Files.exists(file)) Files.size(file) else 0
+        if (Files.deleteIfExists(file)) quota?.removed(key.world, bytes)
     }
 
     @JvmOverloads
@@ -228,8 +240,8 @@ constructor(
         ) {
             "cache entry"
         }
-        Files.deleteIfExists(root.resolve(entry.world.toString()).resolve(parts[2]))
         val coordinates = parts[2].removeSuffix(".gz").split('_').map(String::toInt)
+        delete(Key(entry.world, coordinates[0], coordinates[1]))
         publish(Key(entry.world, coordinates[0], coordinates[1]), 0)
     }
 

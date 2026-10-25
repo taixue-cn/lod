@@ -9,7 +9,7 @@ java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 
 group = "cc.taixue.lod"
 
-version = "0.2.0+mc26.3-performance.20261025"
+version = "0.2.0+mc26.3-capacity.20261026"
 
 repositories {
     mavenCentral()

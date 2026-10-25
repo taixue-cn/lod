@@ -12,6 +12,7 @@ import org.bukkit.plugin.java.JavaPlugin
 
 /** Paper entry point for the shared Voxy/DH server cache. */
 class LodServer : JavaPlugin() {
+    val cacheQuota = cc.taixue.lod.core.CacheQuota()
     lateinit var dhSupport: DhSupport
         private set
 
@@ -59,6 +60,7 @@ class LodServer : JavaPlugin() {
             BackgroundLoad(
                 "LOD-load-monitor",
                 config.getDouble("prewarm.global.max-heap-percent", 70.0).coerceIn(10.0, 95.0),
+                storagePressure = cacheQuota::pauseReason,
             )
         server.scheduler.runTaskTimer(
             this,
@@ -70,6 +72,7 @@ class LodServer : JavaPlugin() {
         DhGuard.install(worldAccess, dhSupport.pluginMessageHandler)
         scheduler = BukkitScheduler(this).also { dhSupport.scheduler = it }
         dhSupport.onEnable()
+        dhSupport.lodRepository.cacheQuota = cacheQuota
         server.pluginManager.registerEvents(WorldHandler(this), this)
         server.pluginManager.registerEvents(PlayerHandler(this), this)
         proxy = PluginMessageProxy(this).also { it.onEnable() }

@@ -11,6 +11,8 @@ import java.util.zip.CRC32
  * cache.
  */
 class NativeRegionStore(private val root: Path, private val maxIndexedRegions: Int = 128) {
+    var quota: CacheQuota? = null
+
     init {
         require(maxIndexedRegions > 0)
     }
@@ -126,20 +128,30 @@ class NativeRegionStore(private val root: Path, private val maxIndexedRegions: I
         val file = path(region)
         Files.createDirectories(file.parent)
         val crc = CRC32().apply { update(body) }.value
-        RandomAccessFile(file.toFile(), "rw").use { output ->
-            // Bound a frequently edited region. A discarded derived region is rebuilt on demand.
-            if (output.length() > 32 * 1024 * 1024) {
-                output.setLength(0)
-                records.clear()
+        val oldBytes = if (Files.exists(file)) Files.size(file) else 0
+        val delta = 28L + body.size - if (oldBytes > 32 * 1024 * 1024) oldBytes else 0
+        quota?.reserve(key.world, delta).use { reservation ->
+            try {
+                RandomAccessFile(file.toFile(), "rw").use { output ->
+                    // Bound a frequently edited region. A discarded derived region is rebuilt on
+                    // demand.
+                    if (output.length() > 32 * 1024 * 1024) {
+                        output.setLength(0)
+                        records.clear()
+                    }
+                    output.seek(output.length())
+                    output.writeLong(Wire.pack(key.x, key.z))
+                    output.writeLong(version)
+                    output.writeInt(body.size)
+                    output.writeLong(crc)
+                    val offset = output.filePointer.toInt()
+                    output.write(body)
+                    records[Wire.pack(key.x, key.z)] = Record(offset, body.size, version, crc)
+                }
+            } finally {
+                val actualBytes = if (Files.exists(file)) Files.size(file) else 0
+                reservation?.commit(actualBytes - oldBytes)
             }
-            output.seek(output.length())
-            output.writeLong(Wire.pack(key.x, key.z))
-            output.writeLong(version)
-            output.writeInt(body.size)
-            output.writeLong(crc)
-            records[Wire.pack(key.x, key.z)] =
-                Record(output.filePointer.toInt(), body.size, version, crc)
-            output.write(body)
         }
         buffers.remove(region)?.let { buffered -= it.size }
     }
@@ -170,7 +182,9 @@ class NativeRegionStore(private val root: Path, private val maxIndexedRegions: I
         require(name.matches(Regex("-?\\d+_-?\\d+\\.native")))
         val coordinates = name.removeSuffix(".native").split('_').map(String::toInt)
         val region = Region(entry.world, coordinates[0], coordinates[1])
-        Files.deleteIfExists(path(region))
+        val file = path(region)
+        val bytes = if (Files.exists(file)) Files.size(file) else 0
+        if (Files.deleteIfExists(file)) quota?.removed(entry.world, bytes)
         indexes.remove(region)
         buffers.remove(region)?.let { buffered -= it.size }
     }

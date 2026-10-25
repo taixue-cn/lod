@@ -225,7 +225,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             plugin.config.getDouble("prewarm.global.max-heap-percent", 75.0),
             plugin.backgroundLoad.duty,
         )
-        if (budget.paused) {
+        if (budget.paused || plugin.cacheQuota.pauseReason() != null) {
             // Saved terrain is reread later; a paused refresh must not retain full chunk snapshots.
             unloads.replaceAll { _, _ -> null }
             return
@@ -246,7 +246,8 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             future.whenComplete { _, error ->
                 main {
                     active--
-                    if (error != null) {
+                    if (plugin.cacheQuota.pauseReason() != null) unloads[key] = null
+                    else if (error != null) {
                         failed++
                         plugin.logger.warning("Unload Voxy refresh: $error")
                     } else completed++
@@ -262,7 +263,8 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                 plugin.dhSupport.refreshLod(key.world, key.x, key.z).whenComplete { _, error ->
                     main {
                         active--
-                        if (error != null) failed++ else completed++
+                        if (plugin.cacheQuota.pauseReason() != null) unloadDh.add(key)
+                        else if (error != null) failed++ else completed++
                     }
                 }
             }
@@ -427,6 +429,10 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             main {
                 active--
                 job.pending--
+                if (plugin.cacheQuota.pauseReason() != null) {
+                    job.ready.addFirst(work)
+                    return@main
+                }
                 job.done++
                 if (error != null) {
                     job.errors++

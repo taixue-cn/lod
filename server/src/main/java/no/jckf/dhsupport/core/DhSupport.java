@@ -414,6 +414,8 @@ public class DhSupport implements Configurable
     }
     protected synchronized CompletableFuture<LodModel> generateLod(UUID worldId,SectionPosition position,boolean manageChunks){
         if(!DhGuard.cacheAllowed(worldId))return CompletableFuture.completedFuture(null);
+        var quota = this.lodRepository.getCacheQuota();
+        if(quota != null && quota.pauseReason() != null)return CompletableFuture.completedFuture(null);
         String key=worldId+":"+position.getX()+":"+position.getZ();var previous=activeModels.get(key);if(previous!=null)return previous;
         var result=new CompletableFuture<LodModel>();activeModels.put(key,result);
         try{buildLod(worldId,position,manageChunks).whenComplete((value,error)->{

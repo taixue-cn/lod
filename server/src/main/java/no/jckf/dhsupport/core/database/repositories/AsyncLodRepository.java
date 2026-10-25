@@ -54,6 +54,12 @@ public class AsyncLodRepository extends LodRepository
     }
 
     public CompletableFuture<java.util.List<cc.taixue.lod.core.CacheRetention.Entry>> cacheEntriesAsync(){return cacheEntriesAsync(()->{});}
+    public CompletableFuture<java.util.Map<UUID,Long>> cacheUsageAsync(){return queueTask(()->{
+        var sizes=new java.util.HashMap<UUID,Long>();
+        try(var statement=database.getConnection().createStatement();var rows=statement.executeQuery("SELECT worldId,sum(length(data)+coalesce(length(beacons),0)) FROM lods GROUP BY worldId")){
+            while(rows.next())sizes.put(UUID.fromString(rows.getString(1)),rows.getLong(2));
+        }catch(java.sql.SQLException e){throw new java.util.concurrent.CompletionException(e);}return sizes;
+    });}
     public CompletableFuture<java.util.List<cc.taixue.lod.core.CacheRetention.Entry>> cacheEntriesAsync(Runnable checkpoint){return queueTask(()->{
         var entries=new java.util.ArrayList<cc.taixue.lod.core.CacheRetention.Entry>();
         try(var statement=database.getConnection().createStatement();var rows=statement.executeQuery("SELECT worldId,x,z,length(data)+coalesce(length(beacons),0) AS bytes,timestamp FROM lods")){

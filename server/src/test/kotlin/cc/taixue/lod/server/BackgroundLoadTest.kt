@@ -49,4 +49,20 @@ class BackgroundLoadTest {
         val budget = BackgroundLoad("test", monitor = false)
         assertThrows(InterruptedException::class.java) { budget.reader { true }.checkpoint() }
     }
+
+    @Test
+    fun storagePauseOverridesHealthyTicksAndRecoversAfterCapacityIsRaised() {
+        val quota = cc.taixue.lod.core.CacheQuota()
+        quota.configure(100, emptyMap())
+        quota.initialize(mapOf(java.util.UUID.randomUUID() to 100L))
+        val load = BackgroundLoad("test", monitor = false, storagePressure = quota::pauseReason)
+        repeat(40) { load.update(healthy) }
+        assertEquals(0, load.duty)
+        assertEquals("global storage quota reached", load.reason)
+        quota.configure(200, emptyMap())
+        repeat(9) { load.update(healthy) }
+        assertEquals(0, load.duty)
+        load.update(healthy)
+        assertEquals(25, load.duty)
+    }
 }

@@ -1,6 +1,5 @@
 package cc.taixue.lod.server
 
-import cc.taixue.lod.core.CacheRetention
 import java.io.IOException
 import java.nio.file.Files
 import java.util.Properties
@@ -16,13 +15,13 @@ import org.bukkit.event.HandlerList
 import org.bukkit.event.Listener
 import org.bukkit.event.world.WorldLoadEvent
 
-/** One retention policy spans compressed Voxy files and DH model payloads. */
+/** One capacity budget spans Voxy, native records and DH payloads without quota eviction. */
 class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
     private val worker = Executors.newSingleThreadExecutor { task ->
         Thread(task, "LOD-cache-retention").apply { isDaemon = true }
     }
     private val worlds = Properties()
-    @Volatile private var rules = emptyMap<UUID, CacheRetention.Rule>()
+    @Volatile private var rules = emptyMap<UUID, Long>()
     @Volatile private var global = 0L
     @Volatile private var running = false
     @Volatile private var status = "not scanned"
@@ -43,8 +42,10 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
                 plugin,
                 Runnable {
                     if (
-                        System.currentTimeMillis() - lastRun >=
-                            maxOf(1, plugin.config.getInt("cache.maintenance-seconds", 30)) * 1000L
+                        plugin.cacheQuota.pauseReason() != null &&
+                            System.currentTimeMillis() - lastRun >=
+                                maxOf(1, plugin.config.getInt("cache.maintenance-seconds", 30)) *
+                                    1000L
                     )
                         trim()
                 },
@@ -80,96 +81,64 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
                     plugin.config.getLong("lod.cache-mib", 4096),
                 )
             )
-        val snapshot = mutableMapOf<UUID, CacheRetention.Rule>()
+        val snapshot = mutableMapOf<UUID, Long>()
         plugin.config.getConfigurationSection("cache.by_world")?.getValues(false)?.forEach {
             (name, value) ->
             if (value is ConfigurationSection) {
                 for (id in worlds.stringPropertyNames()) {
                     if (name == id || name == worlds.getProperty(id)) {
                         snapshot[UUID.fromString(id)] =
-                            CacheRetention.Rule(
-                                if (value.contains("max-mib")) bytes(value.getLong("max-mib"))
-                                else null,
-                                value.getInt("priority", 0),
-                            )
+                            if (value.contains("max-mib")) bytes(value.getLong("max-mib")) else -1
                     }
                 }
             }
         }
         rules = snapshot.toMap()
+        plugin.cacheQuota.configure(global, rules)
         lastRun = 0
     }
 
+    /** Recount externally freed space; this command never deletes data to make quota room. */
     @Synchronized
     fun trim(): CompletableFuture<String> {
         if (running) return checkNotNull(current)
-        if (plugin.backgroundLoad.duty == 0) {
-            status = "cache maintenance deferred: ${plugin.backgroundLoad.reason}"
-            return CompletableFuture.completedFuture(status)
-        }
-        val runtime = Runtime.getRuntime()
-        val heapPercent =
-            (runtime.totalMemory() - runtime.freeMemory()) * 100.0 / runtime.maxMemory()
-        if (
-            heapPercent >=
-                plugin.config
-                    .getDouble("prewarm.global.max-heap-percent", 75.0)
-                    .coerceIn(10.0, 95.0)
-        ) {
-            // A full catalog allocates per-file metadata; player edits need the headroom first.
-            status = "cache maintenance deferred: heap pressure"
-            return CompletableFuture.completedFuture(status)
-        }
         running = true
         lastRun = System.currentTimeMillis()
         val result = CompletableFuture<String>()
         current = result
-        val limit = global
-        val policy = rules
-        val maximumHeap =
-            plugin.config.getDouble("prewarm.global.max-heap-percent", 75.0).coerceIn(10.0, 95.0)
         worker.execute {
             try {
-                val checkpoint = {
-                    if (
-                        plugin.backgroundLoad.duty == 0 ||
-                            Thread.currentThread().isInterrupted ||
-                            (runtime.totalMemory() - runtime.freeMemory()) * 100.0 /
-                                runtime.maxMemory() >= maximumHeap
-                    )
-                        throw java.util.concurrent.CancellationException("server pressure")
-                }
-                val entries =
-                    plugin.voxyService.cacheEntries(checkpoint) +
-                        plugin.dhSupport.lodRepository
-                            .cacheEntriesAsync(Runnable { checkpoint() })
-                            .join()
-                checkpoint()
-                val victims = CacheRetention.victims(entries, limit, policy)
-                checkpoint()
-                victims
-                    .filter { it.id.startsWith("voxy:") || it.id.startsWith("native:") }
-                    .forEach {
-                        checkpoint()
-                        plugin.voxyService.evict(it)
+                while (!plugin.cacheQuota.beginInventory()) Thread.sleep(10)
+                val sizes = mutableMapOf<UUID, Long>()
+                var visited = 0
+                for ((directory, suffix) in
+                    listOf("voxy-cache" to ".gz", "voxy-native-v1" to ".native")) {
+                    val root = plugin.dataFolder.toPath().resolve(directory)
+                    if (!Files.isDirectory(root)) continue
+                    Files.walk(root).use { paths ->
+                        val iterator = paths.iterator()
+                        while (iterator.hasNext()) {
+                            if (Thread.currentThread().isInterrupted) throw InterruptedException()
+                            val path = iterator.next()
+                            if (!path.fileName.toString().endsWith(suffix)) continue
+                            val world =
+                                runCatching { UUID.fromString(path.parent.fileName.toString()) }
+                                    .getOrNull() ?: continue
+                            try {
+                                sizes.merge(world, Files.size(path), Long::plus)
+                            } catch (_: java.nio.file.NoSuchFileException) {}
+                            if (++visited % 256 == 0) Thread.sleep(1)
+                        }
                     }
-                plugin.dhSupport.lodRepository.evictAsync(victims).join()
-                val total = entries.sumOf { it.bytes } - victims.sumOf { it.bytes }
-                status =
-                    "cache bytes=$total, evicted=${victims.size}, limit=$limit" +
-                        if (limit >= 0 && total > limit) " (protected worlds exceed global limit)"
-                        else ""
+                }
+                plugin.dhSupport.lodRepository.cacheUsageAsync().join().forEach { (world, bytes) ->
+                    sizes.merge(world, bytes, Long::plus)
+                }
+                plugin.cacheQuota.initialize(sizes)
+                status = plugin.cacheQuota.status()
                 result.complete(status)
             } catch (error: Exception) {
-                if (
-                    error is java.util.concurrent.CancellationException ||
-                        error.cause is java.util.concurrent.CancellationException
-                ) {
-                    status = "cache maintenance deferred: server pressure"
-                    result.complete(status)
-                    return@execute
-                }
-                status = "cache maintenance failed: $error"
+                status = "cache inventory failed; generation paused: $error"
                 plugin.logger.warning(status)
                 result.completeExceptionally(error)
             } finally {
@@ -181,7 +150,7 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
 
     fun command(sender: CommandSender, args: Array<String>): Boolean {
         when (args.firstOrNull() ?: "status") {
-            "status" -> sender.sendMessage(status)
+            "status" -> sender.sendMessage(plugin.cacheQuota.status())
             "trim" ->
                 trim().whenComplete { value, error ->
                     Bukkit.getScheduler()

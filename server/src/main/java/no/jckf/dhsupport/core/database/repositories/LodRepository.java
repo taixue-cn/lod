@@ -43,6 +43,18 @@ public class LodRepository
 
     protected Logger logger;
 
+    private cc.taixue.lod.core.CacheQuota cacheQuota;
+
+    public void setCacheQuota(cc.taixue.lod.core.CacheQuota quota) { this.cacheQuota = quota; }
+    public cc.taixue.lod.core.CacheQuota getCacheQuota() { return this.cacheQuota; }
+
+    private long storedBytes(UUID world, int x, int z) throws SQLException {
+        try (var statement = database.getConnection().prepareStatement("SELECT length(data)+coalesce(length(beacons),0) FROM lods WHERE worldId=? AND x=? AND z=?")) {
+            statement.setString(1, world.toString()); statement.setInt(2, x); statement.setInt(3, z);
+            try (var row = statement.executeQuery()) { return row.next() ? row.getLong(1) : 0L; }
+        }
+    }
+
     public LodRepository(Database database)
     {
         this.database = database;
@@ -63,6 +75,8 @@ public class LodRepository
         int timestamp = (int) (System.currentTimeMillis() / 1000);
 
         try {
+          long delta = (long)data.length + (beacons == null ? 0 : beacons.length) - storedBytes(worldId, sectionX, sectionZ);
+          try (var reservation = cacheQuota == null ? null : cacheQuota.reserve(worldId, delta)) {
             PreparedStatement statement = this.database.prepareAndReuse(SQL_SAVE_LOD);
 
             statement.setString(1, worldId.toString());
@@ -74,6 +88,7 @@ public class LodRepository
             statement.setInt(7, version);
 
             statement.executeUpdate();
+            if (reservation != null) reservation.commit();
 
             return LodModel.create()
                 .setWorldId(worldId)
@@ -83,6 +98,9 @@ public class LodRepository
                 .setBeacons(beacons)
                 .setTimestamp(timestamp)
                 .setVersion(version);
+          }
+        } catch (cc.taixue.lod.core.CacheQuota.Full full) {
+            throw new java.util.concurrent.CompletionException(full);
         } catch (SQLException exception) {
             this.getLogger().warning("Could not save LOD: " + exception);
 
@@ -151,6 +169,7 @@ public class LodRepository
     public boolean deleteLod(UUID worldId, int sectionX, int sectionZ)
     {
         try {
+            long bytes = storedBytes(worldId, sectionX, sectionZ);
             PreparedStatement statement = this.database.prepareAndReuse(SQL_DELETE_LOD);
 
             statement.setString(1, worldId.toString());
@@ -158,6 +177,7 @@ public class LodRepository
             statement.setInt(3, sectionZ);
 
             int affectedRows = statement.executeUpdate();
+            if (affectedRows > 0 && cacheQuota != null) cacheQuota.removed(worldId, bytes);
 
             return affectedRows > 0;
         } catch (SQLException exception) {
@@ -174,6 +194,11 @@ public class LodRepository
         int affectedRows = 0;
 
         try {
+            long removedBytes = 0;
+            try (var size = database.getConnection().prepareStatement("SELECT coalesce(sum(length(data)+coalesce(length(beacons),0)),0) FROM lods WHERE worldId=? AND (x < ? OR z < ? OR x > ? OR z > ?)")) {
+                size.setString(1, worldId.toString()); size.setInt(2, lowSectionX); size.setInt(3, lowSectionZ); size.setInt(4, highSectionX); size.setInt(5, highSectionZ);
+                try (var row = size.executeQuery()) { if (row.next()) removedBytes = row.getLong(1); }
+            }
             PreparedStatement statement = this.database.prepareAndReuse(SQL_TRIM_LODS);
 
             statement.setString(1, worldId.toString());
@@ -183,6 +208,7 @@ public class LodRepository
             statement.setInt(5, highSectionZ);
 
             affectedRows = statement.executeUpdate();
+            if (cacheQuota != null) cacheQuota.removed(worldId, removedBytes);
 
             this.database.optimize();
         } catch (Exception exception) {

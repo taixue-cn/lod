@@ -85,15 +85,16 @@ class VoxyService(private val plugin: LodServer, private val access: WorldAccess
             raw = RawSender()
             cache =
                 ColumnCache(
-                    plugin.dataFolder.toPath().resolve("voxy-cache"),
-                    Duration.ofSeconds(
-                        plugin.config
-                            .getInt("lod.cache-max-age-seconds", -1)
-                            .coerceIn(-1, 3600)
-                            .toLong()
-                    ),
-                    -1,
-                )
+                        plugin.dataFolder.toPath().resolve("voxy-cache"),
+                        Duration.ofSeconds(
+                            plugin.config
+                                .getInt("lod.cache-max-age-seconds", -1)
+                                .coerceIn(-1, 3600)
+                                .toLong()
+                        ),
+                        -1,
+                    )
+                    .also { it.quota = plugin.cacheQuota }
         } catch (error: IOException) {
             throw IllegalStateException("Cannot initialize Voxy transport/cache", error)
         } catch (error: ReflectiveOperationException) {
@@ -352,6 +353,11 @@ class VoxyService(private val plugin: LodServer, private val access: WorldAccess
             finish(key)
             return
         }
+        if (plugin.cacheQuota.pauseReason() != null) {
+            answer(lease, key, 2)
+            finish(key)
+            return
+        }
         if (!world.isChunkGenerated(key.x, key.z)) {
             answer(lease, key, 2)
             finish(key)
@@ -556,7 +562,7 @@ class VoxyService(private val plugin: LodServer, private val access: WorldAccess
         uploaded: WireSectionCursor.WireColumn,
         result: Consumer<Boolean>,
     ) {
-        if (!inRange(lease, key)) {
+        if (!inRange(lease, key) || plugin.cacheQuota.pauseReason() != null) {
             result.accept(false)
             return
         }
@@ -654,7 +660,7 @@ class VoxyService(private val plugin: LodServer, private val access: WorldAccess
     fun refreshSnapshot(world: World, snapshot: ChunkSnapshot): CompletableFuture<Boolean> {
         val result = CompletableFuture<Boolean>()
         val key = ColumnCache.Key(world.uid, snapshot.x, snapshot.z)
-        if (!access.cacheAllowed(key.world)) {
+        if (!access.cacheAllowed(key.world) || plugin.cacheQuota.pauseReason() != null) {
             result.complete(false)
             return result
         }
@@ -739,7 +745,11 @@ class VoxyService(private val plugin: LodServer, private val access: WorldAccess
         result: CompletableFuture<Boolean>,
         knownGenerated: Boolean,
     ) {
-        if (!access.cacheAllowed(world.uid) || (!knownGenerated && !world.isChunkGenerated(x, z))) {
+        if (
+            plugin.cacheQuota.pauseReason() != null ||
+                !access.cacheAllowed(world.uid) ||
+                (!knownGenerated && !world.isChunkGenerated(x, z))
+        ) {
             result.complete(false)
             return
         }

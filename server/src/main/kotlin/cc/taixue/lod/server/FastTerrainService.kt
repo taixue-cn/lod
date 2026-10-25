@@ -58,7 +58,10 @@ class FastTerrainService(
     }
     private val peers = linkedMapOf<UUID, Peer>()
     private val catalog = ColumnIndex()
-    val regions = NativeRegionStore(plugin.dataFolder.toPath().resolve("voxy-native-v1"))
+    val regions =
+        NativeRegionStore(plugin.dataFolder.toPath().resolve("voxy-native-v1")).also {
+            it.quota = plugin.cacheQuota
+        }
     private val opacity = NativeOpacity()
     private val cacheMemoryListener: (Boolean) -> Unit = { regions.setMemoryCaching(it) }
     private val workers =
@@ -414,6 +417,7 @@ class FastTerrainService(
         regions.get(key, version)?.let {
             return it
         }
+        if (plugin.cacheQuota.pauseReason() != null) return null
         val entry = source.get(key) ?: return null
         if (source.version(key) != version) return null
         val body = PreparedColumn.prepare(entry.body, opacity::of)

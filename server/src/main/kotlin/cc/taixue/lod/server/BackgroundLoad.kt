@@ -13,6 +13,7 @@ class BackgroundLoad(
     name: String,
     private val maxHeapPercent: Double = 70.0,
     monitor: Boolean = true,
+    private val storagePressure: () -> String? = { null },
 ) : AutoCloseable {
     data class Sample(
         val tps: Double,
@@ -108,13 +109,16 @@ class BackgroundLoad(
     internal fun update(value: Sample) {
         val wasPaused = duty == 0
         reason =
-            when {
-                value.tickGapMillis > 250 || value.tps < 18.5 || value.mspt >= 45 -> "tick pressure"
-                value.heapPercent >= maxHeapPercent -> "heap pressure"
-                value.availableMiB < 768 || value.memoryStallPercent >= 5 -> "host memory pressure"
-                value.cpu >= 0.95 -> "host CPU pressure"
-                else -> ""
-            }
+            storagePressure()
+                ?: when {
+                    value.tickGapMillis > 250 || value.tps < 18.5 || value.mspt >= 45 ->
+                        "tick pressure"
+                    value.heapPercent >= maxHeapPercent -> "heap pressure"
+                    value.availableMiB < 768 || value.memoryStallPercent >= 5 ->
+                        "host memory pressure"
+                    value.cpu >= 0.95 -> "host CPU pressure"
+                    else -> ""
+                }
         val target =
             when {
                 reason.isNotEmpty() -> 0

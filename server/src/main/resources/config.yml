@@ -263,7 +263,7 @@ lod:
   # Prepared native columns; all players share this budget and at most two background jobs.
   native-columns-per-tick: 512
   max-queued-per-player: 256
-  cache-mib: 4096
+  cache-mib: 20480
   cache-max-age-seconds: -1
 
 # Optional client uploads stay disabled by default, including the ARCH deployment.
@@ -276,15 +276,15 @@ upload:
   max-inflight: 4
   trusted-client-timestamps: false
 
-# Shared compressed model budgets: Voxy files + DH data/beacon payloads.
-# A world with explicit max-mib: -1 is protected from automatic size eviction.
-# Missing per-world limits participate in global trimming. Lower priority evicts first.
+# Shared persisted-data budget: Voxy files + native records + DH data/beacon payloads.
+# Full budgets pause generation and retain existing cache; no quota-driven eviction.
+# /lod reload applies limits. -1 removes a world limit, while the global limit still applies.
 cache:
   global:
-    max-mib: 4096
+    max-mib: 20480
   by_world: {}
-  # Example: main-city: {max-mib: 1024, priority: 10}
-  maintenance-seconds: 30
+  # Example: main-city: {max-mib: 1024}
+  maintenance-seconds: 300
   refresh-on-unload: true
 
 # Reads occupied slots in existing region files. Never generates new terrain.
