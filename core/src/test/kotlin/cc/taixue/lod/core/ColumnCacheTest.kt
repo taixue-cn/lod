@@ -85,4 +85,18 @@ class ColumnCacheTest {
         cache.evict(cache.entries().first())
         assertNull(cache.get(key))
     }
+
+    @Test
+    fun aPressureAbortReleasesInventoryWithoutDeletingPersistedColumns() {
+        val cache = ColumnCache(directory, Duration.ofDays(1), 10000)
+        val key = ColumnCache.Key(UUID.randomUUID(), -32, 31)
+        cache.put(key, ColumnCache.Entry(1, byteArrayOf(7)))
+        org.junit.jupiter.api.Assertions.assertThrows(
+            java.util.concurrent.CancellationException::class.java
+        ) {
+            cache.entries { throw java.util.concurrent.CancellationException("pressure") }
+        }
+        assertArrayEquals(byteArrayOf(7), cache.get(key)!!.body)
+        org.junit.jupiter.api.Assertions.assertEquals(1, cache.entries().size)
+    }
 }

@@ -53,10 +53,11 @@ public class AsyncLodRepository extends LodRepository
         return future;
     }
 
-    public CompletableFuture<java.util.List<cc.taixue.lod.core.CacheRetention.Entry>> cacheEntriesAsync(){return queueTask(()->{
+    public CompletableFuture<java.util.List<cc.taixue.lod.core.CacheRetention.Entry>> cacheEntriesAsync(){return cacheEntriesAsync(()->{});}
+    public CompletableFuture<java.util.List<cc.taixue.lod.core.CacheRetention.Entry>> cacheEntriesAsync(Runnable checkpoint){return queueTask(()->{
         var entries=new java.util.ArrayList<cc.taixue.lod.core.CacheRetention.Entry>();
         try(var statement=database.getConnection().createStatement();var rows=statement.executeQuery("SELECT worldId,x,z,length(data)+coalesce(length(beacons),0) AS bytes,timestamp FROM lods")){
-            while(rows.next()){UUID world=UUID.fromString(rows.getString(1));entries.add(new cc.taixue.lod.core.CacheRetention.Entry("dh:"+world+":"+rows.getInt(2)+":"+rows.getInt(3),world,rows.getLong(4),rows.getLong(5)*1000));}
+            while(rows.next()){checkpoint.run();UUID world=UUID.fromString(rows.getString(1));entries.add(new cc.taixue.lod.core.CacheRetention.Entry("dh:"+world+":"+rows.getInt(2)+":"+rows.getInt(3),world,rows.getLong(4),rows.getLong(5)*1000));}
         }catch(java.sql.SQLException e){throw new java.util.concurrent.CompletionException(e);}return entries;
     });}
     public CompletableFuture<Integer> evictAsync(java.util.List<cc.taixue.lod.core.CacheRetention.Entry> entries){return queueTask(()->{

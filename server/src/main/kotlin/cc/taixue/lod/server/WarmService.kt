@@ -152,12 +152,13 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                 // Count the same saved chunks as prewarming; background CPU/allocations still
                 // need a budget even though this worker never blocks the dispatch queue.
                 slice.checkpoint()
-                plugin.voxyService.cache().catalog(worldId).forEach { (key, version) ->
-                    slice.checkpoint()
+                plugin.voxyService.cache().forEachCached(worldId, { slice.checkpoint() }) {
+                    key,
+                    version ->
                     if (key.world == worldId)
                         job.coverage.observe(Wire.pack(key.x, key.z), version, seed = true)
                 }
-                val positions = mutableSetOf<Long>()
+                val positions = CacheCoverage.Inventory()
                 val reader = SavedChunks(job.region)
                 while (!closed && !job.cancelled && !Thread.currentThread().isInterrupted) {
                     val chunk =
@@ -165,7 +166,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
                             slice.checkpoint()
                             true
                         } ?: break
-                    positions += Wire.pack(chunk.x, chunk.z)
+                    positions.add(Wire.pack(chunk.x, chunk.z))
                 }
                 if (!closed && !job.cancelled) job.coverage.inventory(positions)
             } catch (error: Exception) {
@@ -222,8 +223,15 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             plugin.config.getInt("prewarm.global.scan-duty-percent", 25),
             (runtime.totalMemory() - runtime.freeMemory()) * 100.0 / runtime.maxMemory(),
             plugin.config.getDouble("prewarm.global.max-heap-percent", 75.0),
+            plugin.backgroundLoad.duty,
         )
-        if (budget.paused) return
+        if (budget.paused) {
+            // Saved terrain is reread later; a paused refresh must not retain full chunk snapshots.
+            unloads.replaceAll { _, _ -> null }
+            return
+        }
+        if (rotation++ % ((100 + plugin.backgroundLoad.duty - 1) / plugin.backgroundLoad.duty) != 0)
+            return
         val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 256)
         while (active < capacity && unloads.isNotEmpty()) {
             val iterator = unloads.iterator()
@@ -260,7 +268,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
             }
         }
         val order = jobs.values.toMutableList()
-        if (order.isNotEmpty()) Collections.rotate(order, -(rotation++ % order.size))
+        if (order.isNotEmpty()) Collections.rotate(order, -(rotation % order.size))
         // Bound snapshots/chunk loads, rather than leaving the encoder idle behind a tick quota.
         // Two slots remain available to real-time refreshes even with a full initialization queue.
         val deadline =
@@ -474,7 +482,7 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
         }
         if (action == "status") {
             sender.sendMessage(
-                "prewarm active=$active, paused=${budget.paused}, measured-tps=${"%.2f".format(java.util.Locale.ROOT, budget.tps)}, limit=${plugin.config.getInt("prewarm.global.max-inflight", 32)}, unload queue=${unloads.size}/${unloadDh.size}, refreshed=$completed, failed=$failed"
+                "prewarm active=$active, paused=${budget.paused}, measured-tps=${"%.2f".format(java.util.Locale.ROOT, budget.tps)}, limit=${plugin.config.getInt("prewarm.global.max-inflight", 32)}, duty=${plugin.backgroundLoad.duty}%, reason=${plugin.backgroundLoad.reason}, unload queue=${unloads.size}/${unloadDh.size}, refreshed=$completed, failed=$failed"
             )
             jobs.values.forEach {
                 sender.sendMessage(

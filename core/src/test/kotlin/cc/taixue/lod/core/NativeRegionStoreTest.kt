@@ -26,4 +26,24 @@ class NativeRegionStoreTest {
         reopened.evict(reopened.entries().single())
         assertNull(reopened.get(key, 101))
     }
+
+    @Test
+    fun pressureReleaseAndIndexEvictionKeepPersistedTerrainReadable() {
+        val world = UUID.randomUUID()
+        val store = NativeRegionStore(root, 1)
+        val first = ColumnCache.Key(world, 0, 0)
+        val second = ColumnCache.Key(world, 32, 0)
+        store.put(first, 1, byteArrayOf(1))
+        store.put(second, 2, byteArrayOf(2))
+        val indexes =
+            NativeRegionStore::class.java.getDeclaredField("indexes").apply { isAccessible = true }
+        org.junit.jupiter.api.Assertions.assertEquals(1, (indexes.get(store) as Map<*, *>).size)
+        store.setMemoryCaching(false)
+        org.junit.jupiter.api.Assertions.assertEquals(0, (indexes.get(store) as Map<*, *>).size)
+        assertArrayEquals(byteArrayOf(1), store.get(first, 1))
+        assertArrayEquals(byteArrayOf(2), store.get(second, 2))
+        org.junit.jupiter.api.Assertions.assertEquals(0, (indexes.get(store) as Map<*, *>).size)
+        store.setMemoryCaching(true)
+        assertArrayEquals(byteArrayOf(1), store.get(first, 1))
+    }
 }

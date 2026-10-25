@@ -28,6 +28,7 @@ internal class PrewarmBudget(
         dutyPercent: Int,
         heapPercent: Double = 0.0,
         maxHeapPercent: Double = 75.0,
+        resourceDuty: Int = 100,
     ) {
         val now = clock()
         val previous = ticks[cursor]
@@ -35,9 +36,10 @@ internal class PrewarmBudget(
         cursor = (cursor + 1) % ticks.size
         if (samples < ticks.size) samples++
         else tps = minOf(20.0, ticks.size * 1_000_000_000.0 / (now - previous).coerceAtLeast(1))
-        duty = dutyPercent.coerceIn(1, 100)
+        duty = minOf(dutyPercent, resourceDuty).coerceIn(1, 100)
         paused =
-            tps < minTps.coerceIn(1.0, 20.0) ||
+            resourceDuty <= 0 ||
+                tps < minTps.coerceIn(1.0, 20.0) ||
                 mspt > maxMspt.coerceIn(1.0, 50.0) ||
                 heapPercent >= maxHeapPercent.coerceIn(10.0, 95.0)
     }

@@ -9,7 +9,7 @@ java { toolchain.languageVersion.set(JavaLanguageVersion.of(25)) }
 
 group = "cc.taixue.lod"
 
-version = "0.2.0+mc26.3"
+version = "0.2.0+mc26.3-performance.20261025"
 
 repositories {
     mavenCentral()
@@ -58,8 +58,9 @@ tasks.withType<JavaCompile>().configureEach { options.encoding = "UTF-8" }
 tasks.test { useJUnitPlatform() }
 
 tasks.processResources {
+    inputs.property("pluginVersion", project.version)
     filesMatching("plugin.yml") {
-        filter { it.replace("'0.2.0'", "'0.2.0+mc26.3'").replace("'1.21.4'", "'26.3'") }
+        filter { it.replace("'0.2.0'", "'${project.version}'").replace("'1.21.4'", "'26.3'") }
     }
 }
 

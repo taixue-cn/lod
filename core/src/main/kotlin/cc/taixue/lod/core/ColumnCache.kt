@@ -44,28 +44,38 @@ constructor(
         }
 
     @JvmOverloads
-    fun catalog(world: UUID? = null): List<Pair<Key, Long>> {
+    fun catalog(world: UUID? = null): List<Pair<Key, Long>> = buildList {
+        forEachCached(world) { key, version -> add(key to version) }
+    }
+
+    /** Stream inventory without retaining every file path and cache entry while readers pause. */
+    fun forEachCached(
+        world: UUID? = null,
+        checkpoint: () -> Unit = {},
+        consumer: (Key, Long) -> Unit,
+    ) {
         val directory = world?.let { root.resolve(it.toString()) } ?: root
-        if (!Files.isDirectory(directory)) return emptyList()
-        return Files.walk(directory).use { paths ->
-            paths
-                .filter { it.toString().endsWith(".gz") }
-                .toList()
-                .mapNotNull { file ->
+        if (!Files.isDirectory(directory)) return
+        Files.walk(directory).use { paths ->
+            val iterator = paths.iterator()
+            while (iterator.hasNext()) {
+                checkpoint()
+                val file = iterator.next()
+                if (!file.toString().endsWith(".gz")) continue
+                val key =
                     try {
                         val coordinates = file.fileName.toString().removeSuffix(".gz").split('_')
-                        if (coordinates.size != 2) return@mapNotNull null
-                        val key =
-                            Key(
-                                UUID.fromString(file.parent.fileName.toString()),
-                                coordinates[0].toInt(),
-                                coordinates[1].toInt(),
-                            )
-                        key to version(key)
+                        if (coordinates.size != 2) continue
+                        Key(
+                            UUID.fromString(file.parent.fileName.toString()),
+                            coordinates[0].toInt(),
+                            coordinates[1].toInt(),
+                        )
                     } catch (_: IllegalArgumentException) {
-                        null
+                        continue
                     }
-                }
+                consumer(key, version(key))
+            }
         }
     }
 
@@ -173,28 +183,41 @@ constructor(
         publish(key, 0)
     }
 
-    @Synchronized
+    @JvmOverloads
     @Throws(IOException::class)
-    fun entries(): List<CacheRetention.Entry> =
+    fun entries(checkpoint: () -> Unit = {}): List<CacheRetention.Entry> = buildList {
         Files.walk(root).use { paths ->
-            paths
-                .filter { it.toString().endsWith(".gz") }
-                .toList()
-                .mapNotNull { path ->
-                    val world =
-                        try {
-                            UUID.fromString(path.parent.fileName.toString())
-                        } catch (_: IllegalArgumentException) {
-                            return@mapNotNull null
-                        }
+            val iterator = paths.iterator()
+            while (iterator.hasNext()) {
+                checkpoint()
+                val path = iterator.next()
+                if (!path.toString().endsWith(".gz")) continue
+                val world =
+                    try {
+                        UUID.fromString(path.parent.fileName.toString())
+                    } catch (_: IllegalArgumentException) {
+                        continue
+                    }
+                val attributes =
+                    try {
+                        Files.readAttributes(
+                            path,
+                            java.nio.file.attribute.BasicFileAttributes::class.java,
+                        )
+                    } catch (_: java.nio.file.NoSuchFileException) {
+                        continue
+                    }
+                add(
                     CacheRetention.Entry(
                         "voxy:$world:${path.fileName}",
                         world,
-                        Files.size(path),
-                        Files.getLastModifiedTime(path).toMillis(),
+                        attributes.size(),
+                        attributes.lastModifiedTime().toMillis(),
                     )
-                }
+                )
+            }
         }
+    }
 
     @Synchronized
     @Throws(IOException::class)

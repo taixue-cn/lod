@@ -34,11 +34,10 @@ import org.bukkit.event.block.BlockPlaceEvent
 import org.bukkit.event.player.PlayerBucketEmptyEvent
 import org.bukkit.event.player.PlayerBucketFillEvent
 import org.bukkit.event.world.WorldUnloadEvent
-import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.plugin.messaging.PluginMessageListener
 
 /** LSS v20 Paper adapter: bounded work, persistent terrain and authorization before every send. */
-class VoxyService(private val plugin: JavaPlugin, private val access: WorldAccess) :
+class VoxyService(private val plugin: LodServer, private val access: WorldAccess) :
     PluginMessageListener, Listener, AutoCloseable {
     private class Peer(val player: UUID, val capabilities: Int) {
         var lease: SessionGate.Lease? = null
@@ -645,7 +644,8 @@ class VoxyService(private val plugin: JavaPlugin, private val access: WorldAcces
 
     fun cache(): ColumnCache = cache
 
-    fun cacheEntries() = cache.entries() + (fast?.regions?.entries() ?: emptyList())
+    fun cacheEntries(checkpoint: () -> Unit = {}) =
+        cache.entries(checkpoint) + (fast?.regions?.entries(checkpoint) ?: emptyList())
 
     fun evict(entry: cc.taixue.lod.core.CacheRetention.Entry) {
         if (entry.id.startsWith("native:")) fast?.regions?.evict(entry) else cache.evict(entry)

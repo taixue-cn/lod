@@ -466,7 +466,8 @@ public class BukkitWorldInterface implements WorldInterface
 
         int chunkX = Coordinates.blockToChunk(x);
         int chunkZ = Coordinates.blockToChunk(z);
-        if(!this.world.isChunkGenerated(chunkX,chunkZ)){this.getChunk(x,z,this.world.getEmptyChunkSnapshot(chunkX,chunkZ,true,false));return CompletableFuture.completedFuture(true);}
+        // Paper's non-generating async load returns null for absent terrain; a synchronous
+        // isChunkGenerated probe would block the main thread on the same disk lookup.
         if(!this.world.isChunkLoaded(chunkX,chunkZ))cc.taixue.lod.server.BackgroundChunks.loaded(this.world.getUID(),chunkX,chunkZ);
 
         try {

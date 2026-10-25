@@ -29,4 +29,24 @@ class CacheCoverageTest {
         coverage.inventory(setOf(1L))
         assertEquals(0L, coverage.cachedChunks)
     }
+
+    @Test
+    fun streamedCoverageDeduplicatesNegativeCoordinatesAndRetainsEvictions() {
+        val coverage = CacheCoverage()
+        val inventory = CacheCoverage.Inventory()
+        for (x in -33..33) for (z in -33..33) {
+            val position = Wire.pack(x, z)
+            inventory.add(position)
+            inventory.add(position)
+            coverage.observe(position, 10)
+        }
+        coverage.inventory(inventory)
+        assertEquals(4489L, coverage.totalChunks)
+        assertEquals(4489L, coverage.cachedChunks)
+        coverage.observe(Wire.pack(-33, -1), 0)
+        coverage.observe(Wire.pack(-33, -1), 20, seed = true)
+        assertEquals(4488L, coverage.cachedChunks)
+        coverage.observe(Wire.pack(100, 100), 20)
+        assertEquals(4488L, coverage.cachedChunks)
+    }
 }

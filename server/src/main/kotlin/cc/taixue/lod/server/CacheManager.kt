@@ -103,6 +103,10 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
     @Synchronized
     fun trim(): CompletableFuture<String> {
         if (running) return checkNotNull(current)
+        if (plugin.backgroundLoad.duty == 0) {
+            status = "cache maintenance deferred: ${plugin.backgroundLoad.reason}"
+            return CompletableFuture.completedFuture(status)
+        }
         val runtime = Runtime.getRuntime()
         val heapPercent =
             (runtime.totalMemory() - runtime.freeMemory()) * 100.0 / runtime.maxMemory()
@@ -122,15 +126,33 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
         current = result
         val limit = global
         val policy = rules
+        val maximumHeap =
+            plugin.config.getDouble("prewarm.global.max-heap-percent", 75.0).coerceIn(10.0, 95.0)
         worker.execute {
             try {
+                val checkpoint = {
+                    if (
+                        plugin.backgroundLoad.duty == 0 ||
+                            Thread.currentThread().isInterrupted ||
+                            (runtime.totalMemory() - runtime.freeMemory()) * 100.0 /
+                                runtime.maxMemory() >= maximumHeap
+                    )
+                        throw java.util.concurrent.CancellationException("server pressure")
+                }
                 val entries =
-                    plugin.voxyService.cacheEntries() +
-                        plugin.dhSupport.lodRepository.cacheEntriesAsync().join()
+                    plugin.voxyService.cacheEntries(checkpoint) +
+                        plugin.dhSupport.lodRepository
+                            .cacheEntriesAsync(Runnable { checkpoint() })
+                            .join()
+                checkpoint()
                 val victims = CacheRetention.victims(entries, limit, policy)
+                checkpoint()
                 victims
                     .filter { it.id.startsWith("voxy:") || it.id.startsWith("native:") }
-                    .forEach { plugin.voxyService.evict(it) }
+                    .forEach {
+                        checkpoint()
+                        plugin.voxyService.evict(it)
+                    }
                 plugin.dhSupport.lodRepository.evictAsync(victims).join()
                 val total = entries.sumOf { it.bytes } - victims.sumOf { it.bytes }
                 status =
@@ -139,6 +161,14 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
                         else ""
                 result.complete(status)
             } catch (error: Exception) {
+                if (
+                    error is java.util.concurrent.CancellationException ||
+                        error.cause is java.util.concurrent.CancellationException
+                ) {
+                    status = "cache maintenance deferred: server pressure"
+                    result.complete(status)
+                    return@execute
+                }
                 status = "cache maintenance failed: $error"
                 plugin.logger.warning(status)
                 result.completeExceptionally(error)

@@ -27,6 +27,9 @@ class LodServer : JavaPlugin() {
     lateinit var warmService: WarmService
         private set
 
+    lateinit var backgroundLoad: BackgroundLoad
+        private set
+
     private var scheduler: BukkitScheduler? = null
     private var configLoader: ConfigLoader? = null
     private var proxy: PluginMessageProxy? = null
@@ -52,6 +55,17 @@ class LodServer : JavaPlugin() {
                 dataDirectory = dataFolder.absolutePath
             }
         loadDhsConfig()
+        backgroundLoad =
+            BackgroundLoad(
+                "LOD-load-monitor",
+                config.getDouble("prewarm.global.max-heap-percent", 70.0).coerceIn(10.0, 95.0),
+            )
+        server.scheduler.runTaskTimer(
+            this,
+            Runnable { backgroundLoad.heartbeat(server.averageTickTime) },
+            1,
+            1,
+        )
         worldAccess = WorldAccess(this)
         DhGuard.install(worldAccess, dhSupport.pluginMessageHandler)
         scheduler = BukkitScheduler(this).also { dhSupport.scheduler = it }
@@ -91,6 +105,7 @@ class LodServer : JavaPlugin() {
     }
 
     override fun onDisable() {
+        if (::backgroundLoad.isInitialized) backgroundLoad.close()
         managedWorlds?.close()
         if (::warmService.isInitialized) warmService.close()
         if (::cacheManager.isInitialized) cacheManager.close()

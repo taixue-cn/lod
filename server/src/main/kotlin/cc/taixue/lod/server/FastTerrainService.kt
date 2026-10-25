@@ -1,6 +1,7 @@
 package cc.taixue.lod.server
 
 import cc.taixue.lod.core.ColumnCache
+import cc.taixue.lod.core.ColumnIndex
 import cc.taixue.lod.core.FastTerrain
 import cc.taixue.lod.core.LodLimits
 import cc.taixue.lod.core.NativeRegionStore
@@ -10,17 +11,15 @@ import cc.taixue.lod.core.TerrainBatch
 import cc.taixue.lod.core.Wire
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import org.bukkit.Bukkit
 import org.bukkit.entity.Player
-import org.bukkit.plugin.java.JavaPlugin
 import org.bukkit.plugin.messaging.PluginMessageListener
 
 /** Cached-only native synchronization. World leases guard indexes as well as every data frame. */
 class FastTerrainService(
-    private val plugin: JavaPlugin,
+    private val plugin: LodServer,
     private val access: WorldAccess,
     private val raw: RawSender,
     private val source: ColumnCache,
@@ -58,10 +57,10 @@ class FastTerrainService(
             }
     }
     private val peers = linkedMapOf<UUID, Peer>()
-    private val catalog = ConcurrentHashMap<ColumnCache.Key, Long>()
+    private val catalog = ColumnIndex()
     val regions = NativeRegionStore(plugin.dataFolder.toPath().resolve("voxy-native-v1"))
     private val opacity = NativeOpacity()
-    private val warmEntries = ConcurrentHashMap<UUID, List<Pair<ColumnCache.Key, Long>>>()
+    private val cacheMemoryListener: (Boolean) -> Unit = { regions.setMemoryCaching(it) }
     private val workers =
         ThreadPoolExecutor(
             2,
@@ -81,13 +80,14 @@ class FastTerrainService(
     fun start() {
         // Fail visibly instead of silently preparing a different opacity model.
         check(opacity.of("minecraft:stone") == 15) { "Paper opacity mapping unavailable" }
+        regions.setMemoryCaching(plugin.backgroundLoad.duty > 0)
+        plugin.backgroundLoad.stateListeners.add(cacheMemoryListener)
         source.changed = { key, version -> catalog[key] = version }
         workers.execute {
-            val entries = source.catalog()
-            entries.forEach { (key, version) -> if (version > 0) catalog.putIfAbsent(key, version) }
-            entries
-                .groupBy { it.first.world }
-                .forEach { (world, values) -> warmEntries[world] = values }
+            val slice = plugin.backgroundLoad.reader { closed }
+            source.forEachCached(checkpoint = { slice.checkpoint() }) { key, version ->
+                if (version > 0) catalog.putIfAbsent(key, version)
+            }
             indexed = true
         }
         listOf(FastTerrain.HELLO, FastTerrain.REQUEST).forEach {
@@ -176,6 +176,7 @@ class FastTerrainService(
     private fun tick() {
         if (closed) return
         ticks++
+        val duty = plugin.backgroundLoad.duty
         var budget = plugin.config.getInt("lod.native-columns-per-tick", 512).coerceIn(16, 2048)
         val ordered =
             peers.values.toList().let {
@@ -197,9 +198,16 @@ class FastTerrainService(
                 peer.wants.clear()
                 config(peer)
             }
+            if (duty == 0) {
+                peer.index = emptyList()
+                peer.cursor = 0
+                peer.indexReady = false
+                peer.doneSent = false
+            }
             if (lease == null) continue
             if (
-                indexed &&
+                duty > 0 &&
+                    indexed &&
                     !peer.scanning &&
                     peer.cursor >= peer.index.size &&
                     ticks - peer.lastScan >= 100
@@ -212,25 +220,33 @@ class FastTerrainService(
                 try {
                     workers.execute {
                         val entries =
-                            catalog.entries
-                                .asSequence()
-                                .filter {
-                                    it.key.world == lease.world &&
-                                        it.value > 0 &&
-                                        kotlin.math.abs(it.key.x.toLong() - x) <= radius &&
-                                        kotlin.math.abs(it.key.z.toLong() - z) <= radius
-                                }
-                                .map { it.key to it.value }
-                                .sortedBy {
-                                    maxOf(
-                                        kotlin.math.abs(it.first.x.toLong() - x),
-                                        kotlin.math.abs(it.first.z.toLong() - z),
-                                    )
-                                }
-                                .toList()
+                            try {
+                                catalog
+                                    .nearby(lease.world, x, z, radius)
+                                    .onEach {
+                                        if (closed || plugin.backgroundLoad.duty == 0)
+                                            throw java.util.concurrent.CancellationException(
+                                                "server pressure"
+                                            )
+                                    }
+                                    .sortedBy {
+                                        maxOf(
+                                            kotlin.math.abs(it.first.x.toLong() - x),
+                                            kotlin.math.abs(it.first.z.toLong() - z),
+                                        )
+                                    }
+                                    .toList()
+                            } catch (_: java.util.concurrent.CancellationException) {
+                                null
+                            }
                         main {
                             peer.scanning = false
-                            if (peer.lease == lease) {
+                            if (
+                                entries != null &&
+                                    plugin.backgroundLoad.duty > 0 &&
+                                    peer.lease == lease &&
+                                    peers[peer.player] === peer
+                            ) {
                                 peer.index = entries
                                 peer.cursor = 0
                                 peer.indexReady = true
@@ -347,36 +363,36 @@ class FastTerrainService(
             }
         }
         // Precompute in small background jobs before anyone needs the data, without loading worlds.
-        if (indexed && jobs == 0 && ticks % 20 == 0L) {
+        if (duty > 0 && indexed && jobs == 0 && ticks % 20 == 0L) {
             val world =
                 Bukkit.getWorlds().firstOrNull {
-                    access.cacheAllowed(it.uid) &&
-                        warming[it.uid] != -1 &&
-                        warmEntries.containsKey(it.uid)
+                    access.cacheAllowed(it.uid) && !warming.containsKey(it.uid)
                 } ?: return
-            val entries = warmEntries[world.uid] ?: return
-            val cursor = warming[world.uid] ?: 0
-            val batch = entries.drop(cursor).take(256)
-            if (batch.isEmpty()) {
-                warming[world.uid] = -1
-                return
-            }
-            warming[world.uid] = cursor + batch.size
+            val worldId = world.uid
+            warming[worldId] = 0
             jobs++
             try {
                 workers.execute {
                     try {
-                        batch.forEach {
-                            if (catalog[it.first] == it.second) prepared(it.first, it.second)
+                        val slice =
+                            plugin.backgroundLoad.reader { closed || !access.cacheAllowed(worldId) }
+                        source.forEachCached(worldId, { slice.checkpoint() }) { key, version ->
+                            if (catalog[key] == version) prepared(key, version)
                         }
+                        main { warming[worldId] = -1 }
+                    } catch (_: InterruptedException) {
+                        main { warming.remove(worldId) }
                     } catch (error: Exception) {
                         plugin.logger.warning(
                             "Native terrain prewarm failed: ${error.javaClass.simpleName}"
                         )
+                        main { warming.remove(worldId) }
+                    } finally {
+                        main { jobs-- }
                     }
-                    main { jobs-- }
                 }
             } catch (_: java.util.concurrent.RejectedExecutionException) {
+                warming.remove(worldId)
                 jobs--
             }
         }
@@ -408,6 +424,7 @@ class FastTerrainService(
 
     override fun close() {
         closed = true
+        plugin.backgroundLoad.stateListeners.remove(cacheMemoryListener)
         source.changed = { _, _ -> }
         peers.clear()
         workers.shutdownNow()
