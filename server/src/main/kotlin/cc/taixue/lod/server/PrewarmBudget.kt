@@ -21,7 +21,14 @@ internal class PrewarmBudget(
     /**
      * Called on the main thread; the rolling window measures elapsed wall time, including stalls.
      */
-    fun tick(minTps: Double, mspt: Double, maxMspt: Double, dutyPercent: Int) {
+    fun tick(
+        minTps: Double,
+        mspt: Double,
+        maxMspt: Double,
+        dutyPercent: Int,
+        heapPercent: Double = 0.0,
+        maxHeapPercent: Double = 75.0,
+    ) {
         val now = clock()
         val previous = ticks[cursor]
         ticks[cursor] = now
@@ -29,7 +36,10 @@ internal class PrewarmBudget(
         if (samples < ticks.size) samples++
         else tps = minOf(20.0, ticks.size * 1_000_000_000.0 / (now - previous).coerceAtLeast(1))
         duty = dutyPercent.coerceIn(1, 100)
-        paused = tps < minTps.coerceIn(1.0, 20.0) || mspt > maxMspt.coerceIn(1.0, 50.0)
+        paused =
+            tps < minTps.coerceIn(1.0, 20.0) ||
+                mspt > maxMspt.coerceIn(1.0, 50.0) ||
+                heapPercent >= maxHeapPercent.coerceIn(10.0, 95.0)
     }
 
     /**

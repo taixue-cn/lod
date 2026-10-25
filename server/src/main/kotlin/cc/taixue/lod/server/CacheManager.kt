@@ -103,6 +103,19 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
     @Synchronized
     fun trim(): CompletableFuture<String> {
         if (running) return checkNotNull(current)
+        val runtime = Runtime.getRuntime()
+        val heapPercent =
+            (runtime.totalMemory() - runtime.freeMemory()) * 100.0 / runtime.maxMemory()
+        if (
+            heapPercent >=
+                plugin.config
+                    .getDouble("prewarm.global.max-heap-percent", 75.0)
+                    .coerceIn(10.0, 95.0)
+        ) {
+            // A full catalog allocates per-file metadata; player edits need the headroom first.
+            status = "cache maintenance deferred: heap pressure"
+            return CompletableFuture.completedFuture(status)
+        }
         running = true
         lastRun = System.currentTimeMillis()
         val result = CompletableFuture<String>()

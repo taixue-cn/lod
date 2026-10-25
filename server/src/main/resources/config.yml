@@ -302,6 +302,8 @@ prewarm:
     max-mspt: 40.0
     # CPU duty per reader; reduces decompression/allocation pressure even with no work in flight.
     scan-duty-percent: 25
+    # Leave heap headroom for player edits; also defers full cache maintenance scans.
+    max-heap-percent: 75
   by_world: {}
   # Example: main-city: {enabled: true, protocols: [voxy, dh]}
 

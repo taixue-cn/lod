@@ -214,11 +214,14 @@ class WarmService(private val plugin: LodServer) : AutoCloseable, Listener {
 
     private fun tick() {
         if (closed) return
+        val runtime = Runtime.getRuntime()
         budget.tick(
             plugin.config.getDouble("prewarm.global.min-tps", 19.5),
             Bukkit.getServer().averageTickTime,
             plugin.config.getDouble("prewarm.global.max-mspt", 40.0),
             plugin.config.getInt("prewarm.global.scan-duty-percent", 25),
+            (runtime.totalMemory() - runtime.freeMemory()) * 100.0 / runtime.maxMemory(),
+            plugin.config.getDouble("prewarm.global.max-heap-percent", 75.0),
         )
         if (budget.paused) return
         val capacity = plugin.config.getInt("prewarm.global.max-inflight", 32).coerceIn(4, 256)

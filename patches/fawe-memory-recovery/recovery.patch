@@ -1,0 +1,38 @@
+--- a/worldedit-core/src/main/java/com/fastasyncworldedit/core/util/MemUtil.java
++++ b/worldedit-core/src/main/java/com/fastasyncworldedit/core/util/MemUtil.java
+@@ -15,15 +15,19 @@
+     private static final AtomicBoolean slower = new AtomicBoolean(false);
+ 
+     public static boolean isMemoryFree() {
+-        return !memory.get();
++        return !isMemoryLimited();
+     }
+ 
+     public static boolean isMemoryLimited() {
++        // Recover from an earlier notification once actual heap headroom is available.
++        if (memory.get()) {
++            calculateMemory();
++        }
+         return memory.get();
+     }
+ 
+     public static boolean isMemoryLimitedSlow() {
+-        if (memory.get()) {
++        if (isMemoryLimited()) {
+             System.gc();
+             System.gc();
+             calculateMemory();
+@@ -45,12 +49,8 @@
+     }
+ 
+     public static int calculateMemory() {
+-        final long heapSize = Runtime.getRuntime().totalMemory();
+         final long heapMaxSize = Runtime.getRuntime().maxMemory();
+-        if (heapSize < heapMaxSize) {
+-            return Integer.MAX_VALUE;
+-        }
+-        final long heapFreeSize = Runtime.getRuntime().freeMemory();
++        final long heapFreeSize = Math.max(0L, heapMaxSize - getUsedBytes());
+         final int size = (int) ((heapFreeSize * 100) / heapMaxSize);
+         if (size > (100 - Settings.settings().MAX_MEMORY_PERCENT)) {
+             memoryPlentifulTask();

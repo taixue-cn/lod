@@ -53,6 +53,21 @@ class PrewarmBudgetTest {
     }
 
     @Test
+    fun `heap pressure pauses background work even at twenty TPS`() {
+        var now = 1L
+        val budget = PrewarmBudget({ now }, { fail("No reader sleeps in this test") })
+        repeat(101) {
+            now += 50_000_000
+            budget.tick(19.5, 10.0, 40.0, 25, 65.0, 70.0)
+        }
+        assertFalse(budget.paused)
+        budget.tick(19.5, 10.0, 40.0, 25, 70.0, 70.0)
+        assertTrue(budget.paused)
+        budget.tick(19.5, 10.0, 40.0, 25, 60.0, 70.0)
+        assertFalse(budget.paused)
+    }
+
+    @Test
     fun `paused readers observe cancellation instead of getting stuck`() {
         var cancelled = false
         val budget = PrewarmBudget({ 1L }, { cancelled = true })
