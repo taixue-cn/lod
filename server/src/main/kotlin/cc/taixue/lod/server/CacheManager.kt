@@ -1,10 +1,13 @@
 package cc.taixue.lod.server
 
+import cc.taixue.lod.core.CachePurgeState
+import cc.taixue.lod.core.CacheRetention
 import java.io.IOException
 import java.nio.file.Files
 import java.util.Properties
 import java.util.UUID
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import org.bukkit.Bukkit
 import org.bukkit.World
@@ -27,6 +30,83 @@ class CacheManager(private val plugin: LodServer) : AutoCloseable, Listener {
     @Volatile private var status = "not scanned"
     private var current: CompletableFuture<String>? = null
     private var lastRun = 0L
+    private val purges = ConcurrentHashMap<UUID, CompletableFuture<String>>()
+    private val purgeRequests = ConcurrentHashMap<UUID, Long>()
+    private val erased =
+        CachePurgeState(plugin.dataFolder.toPath().resolve("cache-purge-revisions.properties"))
+    private val dh: ManagedLodRepository
+        get() = plugin.dhSupport.lodRepository as ManagedLodRepository
+
+    /** Include cached unloaded worlds in management so closing them does not leave orphan data. */
+    fun knownWorlds(): Set<UUID> =
+        worlds
+            .stringPropertyNames()
+            .mapNotNull {
+                runCatching { UUID.fromString(it) }.getOrNull()
+            }
+            .toSet()
+
+    /** Lease expiry only stops delivery; erasure requires an explicit trusted disabled policy. */
+    fun disableWorld(world: UUID, revision: Long) {
+        require(revision > 0)
+        purgeRequests.merge(world, revision, ::maxOf)
+        val previous = purges[world]
+        if (previous != null && !previous.isDone) return
+        if (
+            previous != null &&
+                !previous.isCompletedExceptionally &&
+                erased.revision(world) >= revision
+        )
+            return
+        plugin.voxyService.cache().blockWorld(world)
+        dh.blockWorld(world)
+        val result = CompletableFuture<String>()
+        purges[world] = result
+        worker.execute {
+            try {
+                plugin.voxyService.cache().purgeWorld(world)
+                val rows = dh.purgeWorldAsync(world).join()
+                erased.completed(world, revision)
+                plugin.logger.info("LOD cache purged world=$world dh_sections=$rows")
+                result.complete("OFF")
+            } catch (error: Exception) {
+                plugin.logger.warning(
+                    "LOD cache purge will retry world=$world: ${error.javaClass.simpleName}"
+                )
+                result.completeExceptionally(error)
+            }
+        }
+    }
+
+    /** A rapid re-enable waits for the old deletion before permitting new writes and warmup. */
+    fun enableWorld(world: UUID, purgeRevision: Long): Boolean {
+        val required = maxOf(purgeRevision, purgeRequests[world] ?: 0L)
+        if (required > erased.revision(world)) {
+            disableWorld(world, required)
+            return false
+        }
+        val pending = purges[world]
+        if (pending != null && (!pending.isDone || pending.isCompletedExceptionally)) return false
+        plugin.voxyService.cache().allowWorld(world)
+        dh.allowWorld(world)
+        purges.remove(world)
+        purgeRequests.remove(world)
+        return true
+    }
+
+    fun blocked(world: UUID): Boolean = purges.containsKey(world)
+
+    fun deletionStatus(world: UUID): WarmService.Status {
+        val pending = purges[world]
+        val state =
+            when {
+                pending == null -> "OFF"
+                pending.isCompletedExceptionally -> "FAILED"
+                !pending.isDone || (purgeRequests[world] ?: 0L) > erased.revision(world) -> "QUEUED"
+                else -> "OFF"
+            }
+        return WarmService.Status(state, 0, 0)
+    }
 
     init {
         try {

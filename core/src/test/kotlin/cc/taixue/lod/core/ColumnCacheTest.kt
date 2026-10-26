@@ -99,4 +99,31 @@ class ColumnCacheTest {
         assertArrayEquals(byteArrayOf(7), cache.get(key)!!.body)
         org.junit.jupiter.api.Assertions.assertEquals(1, cache.entries().size)
     }
+
+    @Test
+    fun purgeRemovesOnlyItsWorldAndRejectsWritesFromBeforeDisable() {
+        val world = UUID.randomUUID()
+        val other = UUID.randomUUID()
+        val cache = ColumnCache(directory, Duration.ofSeconds(-1), -1)
+        val key = ColumnCache.Key(world, 0, 0)
+        val foreign = ColumnCache.Key(other, 0, 0)
+        val entry = ColumnCache.Entry(1, byteArrayOf(7, 8))
+        val old = cache.generation(world)
+        cache.put(key, entry, old)
+        cache.put(foreign, entry)
+        cache.blockWorld(world)
+        cache.purgeWorld(world)
+        org.junit.jupiter.api.Assertions.assertFalse(
+            Files.exists(directory.resolve(world.toString()))
+        )
+        assertArrayEquals(entry.body, cache.get(foreign)!!.body)
+        cache.allowWorld(world)
+        cache.put(key, entry, old)
+        assertNull(
+            cache.get(key),
+            "An old queued writer cannot resurrect a deleted world after re-enable",
+        )
+        cache.put(key, entry, cache.generation(world))
+        assertArrayEquals(entry.body, cache.get(key)!!.body)
+    }
 }

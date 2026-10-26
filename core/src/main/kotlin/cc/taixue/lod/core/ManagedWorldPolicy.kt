@@ -5,14 +5,20 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** A short server-management lease; missing worlds and expired responses always deny terrain. */
 class ManagedWorldPolicy(private val clock: () -> Long = System::nanoTime) {
-    data class Entry(val revision: Long, val enabled: Boolean)
+    data class Entry(val revision: Long, val enabled: Boolean, val purgeRevision: Long = 0)
 
     private data class Snapshot(val worlds: Map<UUID, Entry>, val expiresAt: Long)
 
     private val snapshot = AtomicReference(Snapshot(emptyMap(), 0))
 
     fun replace(worlds: Map<UUID, Entry>, requestStarted: Long) {
-        require(worlds.values.all { it.revision >= 0 && (!it.enabled || it.revision > 0) })
+        require(
+            worlds.values.all {
+                it.revision >= 0 &&
+                    it.purgeRevision in 0..it.revision &&
+                    (!it.enabled || it.revision > 0)
+            }
+        )
         snapshot.set(Snapshot(worlds.toMap(), requestStarted + LEASE_NANOS))
     }
 

@@ -9,6 +9,7 @@ import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
@@ -82,6 +83,32 @@ constructor(
     }
 
     private val maxAgeMillis = maxAge.toMillis()
+    private val blocked = ConcurrentHashMap.newKeySet<UUID>()
+    private val generations = ConcurrentHashMap<UUID, Long>()
+
+    /** Captured before terrain work starts, so a disable/re-enable cannot accept an old write. */
+    fun generation(world: UUID): Long = generations[world] ?: 0L
+
+    /** Fence writers immediately; filesystem deletion runs separately off the server thread. */
+    fun blockWorld(world: UUID) {
+        if (blocked.add(world)) generations.merge(world, 1L, Long::plus)
+    }
+
+    /** Call only after the corresponding purge has completed. */
+    fun allowWorld(world: UUID) {
+        blocked.remove(world)
+    }
+
+    /** Physically remove only this UUID's derived columns, never a Minecraft world directory. */
+    @Synchronized
+    fun purgeWorld(world: UUID) {
+        check(world in blocked) { "Block cache writes before purging" }
+        val directory = root.resolve(world.toString())
+        if (!Files.exists(directory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return
+        Files.walk(directory).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+        }
+    }
 
     init {
         Files.createDirectories(root)
@@ -150,7 +177,8 @@ constructor(
 
     @Synchronized
     @Throws(IOException::class)
-    fun put(key: Key, value: Entry) {
+    fun put(key: Key, value: Entry, generation: Long = generation(key.world)) {
+        if (key.world in blocked || generation != generation(key.world)) return
         if (value.body.size > Wire.MAX_FRAME) throw IOException("column too large")
         val target = path(key)
         Files.createDirectories(target.parent)

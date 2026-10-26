@@ -101,7 +101,7 @@ public class DhSupport implements Configurable
         this.configuration = new Configuration();
 
         this.database = new Database();
-        this.lodRepository = new AsyncLodRepository(this.database);
+        this.lodRepository = new cc.taixue.lod.server.ManagedLodRepository(this.database);
 
         this.pluginMessageHandler = new PluginMessageHandler(this);
 
@@ -427,6 +427,8 @@ public class DhSupport implements Configurable
     private CompletableFuture<LodModel> buildLod(UUID worldId, SectionPosition position, boolean manageChunks)
     {
         if (!DhGuard.cacheAllowed(worldId)) return CompletableFuture.completedFuture(null);
+        // Upstream generation stays Java; the Kotlin policy guard fences its asynchronous result.
+        final long cacheRevision = DhGuard.cacheRevision(worldId);
         int sectionWorldX = Coordinates.sectionToBlock(position.getX());
         int sectionWorldZ = Coordinates.sectionToBlock(position.getZ());
 
@@ -497,7 +499,7 @@ public class DhSupport implements Configurable
 
                     this.generationTracker.ping();
 
-                    if (!DhGuard.cacheAllowed(worldId)) return CompletableFuture.<LodModel>completedFuture(null);
+                    if (!DhGuard.cacheAllowed(worldId) || cacheRevision != DhGuard.cacheRevision(worldId)) return CompletableFuture.<LodModel>completedFuture(null);
                     return this.lodRepository.saveLodAsync(
                         worldId,
                         position.getX(),
