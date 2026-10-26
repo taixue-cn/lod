@@ -1,7 +1,6 @@
 package cc.taixue.lod.server
 
 import cc.taixue.lod.core.CachePurgeState
-import cc.taixue.lod.core.CacheRetention
 import java.io.IOException
 import java.nio.file.Files
 import java.util.Properties
